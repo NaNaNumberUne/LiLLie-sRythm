@@ -457,6 +457,137 @@ body {
     .combo-value {
         font-size: 2.5rem;
     }
+    
+    .controls-info {
+        font-size: 1.1rem;
+    }
+    
+    .key {
+        padding: 4px 12px;
+        font-size: 0.9rem;
+    }
+}
+
+/* Mobile Device Specific Styles */
+.mobile-device #gameCanvas {
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.mobile-device body {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: none;
+}
+
+.mobile-device .controls-info {
+    font-size: 1.1rem;
+    margin: 8px 0;
+}
+
+.mobile-device .mobile-tip {
+    margin-top: 20px;
+    color: #ffd93d;
+    font-weight: 600;
+    animation: mobileTipPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes mobileTipPulse {
+    0%, 100% {
+        opacity: 0.7;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.05);
+    }
+}
+
+/* Larger touch targets for mobile */
+.mobile-device .game-btn {
+    padding: 20px 50px;
+    font-size: 1.3rem;
+    min-height: 60px;
+}
+
+/* Adjust UI for mobile screens */
+@media (max-width: 480px) {
+    .game-title {
+        font-size: 2.2rem;
+        letter-spacing: 0.1em;
+    }
+    
+    .game-title.subtitle {
+        font-size: 1.8rem;
+    }
+    
+    .ui-top {
+        top: 10px;
+        left: 10px;
+        right: 10px;
+    }
+    
+    .progress-bar {
+        width: 150px;
+        height: 10px;
+    }
+    
+    .time-display {
+        font-size: 0.75rem;
+    }
+    
+    .score-value {
+        font-size: 1.4rem;
+    }
+    
+    .score-label {
+        font-size: 0.75rem;
+    }
+    
+    .combo-display {
+        right: 20px;
+    }
+    
+    .combo-value {
+        font-size: 2rem;
+    }
+    
+    .combo-label {
+        font-size: 0.9rem;
+    }
+    
+    .final-stats {
+        padding: 20px 30px;
+    }
+    
+    .stat-row {
+        min-width: 250px;
+    }
+    
+    .stat-label {
+        font-size: 1rem;
+    }
+    
+    .stat-value {
+        font-size: 1.4rem;
+    }
+    
+    .gameover-title,
+    .victory-title {
+        font-size: 2.5rem;
+    }
+    
+    .victory-stars {
+        font-size: 2.5rem;
+    }
+}
+
+/* Prevent text selection and context menu on touch */
+.mobile-device * {
+    -webkit-tap-highlight-color: transparent;
 }
 
 /* Screen Shake Animation */

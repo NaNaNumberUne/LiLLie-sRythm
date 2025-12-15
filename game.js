@@ -66,6 +66,11 @@ let lastSweeperSpawn = 0;
 let lastRainSpawn = 0;
 let lastLaserSpawn = 0;
 
+// Mobile detection (must be before init)
+var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+               ('ontouchstart' in window) ||
+               (navigator.maxTouchPoints > 0);
+
 // DOM Elements
 const startScreen = document.getElementById('start-screen');
 const gameUI = document.getElementById('game-ui');
@@ -82,9 +87,14 @@ function init() {
     window.addEventListener('resize', resizeCanvas);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    canvas.addEventListener('touchstart', handleTouchStart);
-    canvas.addEventListener('touchmove', handleTouchMove);
-    canvas.addEventListener('touchend', handleTouchEnd);
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+    
+    // Show mobile controls hint if on mobile
+    if (isMobile) {
+        showMobileControlsHint();
+    }
     
     // Click on canvas to retry when game over
     canvas.addEventListener('click', function() {
@@ -100,6 +110,19 @@ function init() {
     initBackground();
     initBackgroundParticles();
     requestAnimationFrame(gameLoop);
+}
+
+// Show mobile controls hint on start screen
+function showMobileControlsHint() {
+    var startInfo = document.querySelector('.start-info');
+    if (startInfo) {
+        startInfo.innerHTML = '<p class="controls-info">Swipe <span class="key">←</span> to move left</p>' +
+                              '<p class="controls-info">Swipe <span class="key">→</span> to move right</p>' +
+                              '<p class="controls-info">Swipe <span class="key">↑</span> to jump</p>' +
+                              '<p class="controls-info mobile-tip">Tap anywhere to start!</p>';
+    }
+    // Add mobile class to body for CSS styling
+    document.body.classList.add('mobile-device');
 }
 
 function resizeCanvas() {
@@ -163,14 +186,156 @@ function handleKeyUp(e) {
     if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.jump = false;
 }
 
+// Touch/Swipe controls
 var touchStartX = 0;
-function handleTouchStart(e) { touchStartX = e.touches[0].clientX; }
-function handleTouchMove(e) {
-    var diff = e.touches[0].clientX - touchStartX;
-    keys.left = diff < -20;
-    keys.right = diff > 20;
+var touchStartY = 0;
+var touchStartTime = 0;
+var swipeThreshold = 40; // Minimum distance for a swipe
+var swipeTimeThreshold = 400; // Maximum time for a swipe gesture (ms)
+var isTouching = false;
+var activeTouchId = null;
+var swipeMovementTimer = null;
+var swipeMovementDuration = 150; // How long movement lasts after a swipe (ms)
+
+function handleTouchStart(e) {
+    e.preventDefault();
+    
+    // Only track the first touch
+    if (isTouching) return;
+    
+    var touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    touchStartTime = Date.now();
+    isTouching = true;
+    activeTouchId = touch.identifier;
+    
+    // Handle tap to start/retry
+    if (gameState === 'menu') {
+        startGame();
+    } else if (gameState === 'gameover') {
+        startGame();
+    }
 }
-function handleTouchEnd() { keys.left = false; keys.right = false; }
+
+function handleTouchMove(e) {
+    if (!isTouching || gameState !== 'playing') return;
+    e.preventDefault();
+    
+    // Find our tracked touch
+    var touch = null;
+    for (var i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === activeTouchId) {
+            touch = e.touches[i];
+            break;
+        }
+    }
+    if (!touch) return;
+    
+    var diffX = touch.clientX - touchStartX;
+    var diffY = touch.clientY - touchStartY;
+    var timeDiff = Date.now() - touchStartTime;
+    
+    // Check for swipe up (jump) - prioritize vertical swipes
+    if (diffY < -swipeThreshold && Math.abs(diffY) > Math.abs(diffX) && !player.isJumping) {
+        keys.jump = true;
+        // Reset touch start position for continuous swipe detection
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchStartTime = Date.now();
+    }
+    
+    // Check for horizontal swipe (movement)
+    if (Math.abs(diffX) > swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
+        // Clear any existing movement timer
+        if (swipeMovementTimer) {
+            clearTimeout(swipeMovementTimer);
+        }
+        
+        if (diffX < 0) {
+            // Swipe left
+            keys.left = true;
+            keys.right = false;
+        } else {
+            // Swipe right
+            keys.right = true;
+            keys.left = false;
+        }
+        
+        // Reset touch start for continuous swiping
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchStartTime = Date.now();
+        
+        // Set timer to stop movement after swipe duration
+        swipeMovementTimer = setTimeout(function() {
+            keys.left = false;
+            keys.right = false;
+        }, swipeMovementDuration);
+    }
+}
+
+function handleTouchEnd(e) {
+    e.preventDefault();
+    
+    // Check if our tracked touch ended
+    var touchEnded = true;
+    for (var i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === activeTouchId) {
+            touchEnded = false;
+            break;
+        }
+    }
+    
+    if (touchEnded) {
+        // Process final swipe on touch end
+        var timeDiff = Date.now() - touchStartTime;
+        
+        // Only process as swipe if it was quick enough
+        if (timeDiff < swipeTimeThreshold && gameState === 'playing') {
+            var touch = e.changedTouches[0];
+            var diffX = touch.clientX - touchStartX;
+            var diffY = touch.clientY - touchStartY;
+            
+            // Final swipe detection on release
+            if (Math.abs(diffY) > swipeThreshold && diffY < 0 && Math.abs(diffY) > Math.abs(diffX)) {
+                // Swipe up - jump
+                if (!player.isJumping) {
+                    keys.jump = true;
+                    // Jump key will be reset by the game loop
+                }
+            } else if (Math.abs(diffX) > swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
+                // Clear any existing movement timer
+                if (swipeMovementTimer) {
+                    clearTimeout(swipeMovementTimer);
+                }
+                
+                if (diffX < 0) {
+                    // Swipe left
+                    keys.left = true;
+                    keys.right = false;
+                } else {
+                    // Swipe right
+                    keys.right = true;
+                    keys.left = false;
+                }
+                
+                // Stop movement after duration
+                swipeMovementTimer = setTimeout(function() {
+                    keys.left = false;
+                    keys.right = false;
+                }, swipeMovementDuration);
+            }
+        }
+        
+        // Reset touch tracking
+        isTouching = false;
+        activeTouchId = null;
+        touchStartX = 0;
+        touchStartY = 0;
+        keys.jump = false;
+    }
+}
 
 function startGame() {
     gameState = 'playing';
@@ -707,7 +872,11 @@ function drawLoserRetryButton() {
     // Retry text
     ctx.fillStyle = '#ff6b9d';
     ctx.font = 'bold 32px Orbitron, sans-serif';
-    ctx.fillText('Click anywhere or press SPACE to retry', canvas.width/2, canvas.height - 50);
+    if (isMobile) {
+        ctx.fillText('Tap anywhere to retry', canvas.width/2, canvas.height - 50);
+    } else {
+        ctx.fillText('Click anywhere or press SPACE to retry', canvas.width/2, canvas.height - 50);
+    }
 }
 
 function drawBackground() {
