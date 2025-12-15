@@ -8,6 +8,11 @@ const bgMusic = new Audio('assets/sounds/Geometry Dash - Dry Out.mp3');
 bgMusic.loop = true;
 bgMusic.volume = 0.5;
 
+// Death Sound
+const deathSound = new Audio('assets/sounds/Geometry Dash Death.mp3');
+deathSound.loop = false;
+deathSound.volume = 0.7;
+
 // Loser Sound
 const loserSound = new Audio('assets/sounds/LOSERsound.mp3');
 loserSound.loop = true;
@@ -362,7 +367,9 @@ function startGame() {
     victoryScreen.classList.add('hidden');
     gameUI.classList.remove('hidden');
     
-    // Stop loser sound if playing
+    // Stop death and loser sounds if playing
+    deathSound.pause();
+    deathSound.currentTime = 0;
     loserSound.pause();
     loserSound.currentTime = 0;
     
@@ -383,8 +390,16 @@ function gameOver() {
     document.getElementById('final-progress').textContent = Math.floor((gameTime / gameDuration) * 100) + '%';
     triggerScreenShake(20);
     
-    // Stop main music and play loser sound
+    // Stop main music and play death sound
     bgMusic.pause();
+    
+    // Play death sound effect
+    deathSound.currentTime = 0;
+    deathSound.play().catch(function(e) {
+        console.log('Death sound play failed:', e);
+    });
+    
+    // Play loser sound after a short delay
     loserSound.currentTime = 0;
     loserSound.play().catch(function(e) {
         console.log('Loser sound play failed:', e);
