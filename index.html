@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rhythm Dodger</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        
+        <!-- Start Screen -->
+        <div id="start-screen" class="screen">
+            <div class="title-container">
+                <h1 class="game-title">RHYTHM</h1>
+                <h1 class="game-title subtitle">DODGER</h1>
+            </div>
+            <div class="start-info">
+                <p class="controls-info">Use <span class="key">A</span> / <span class="key">D</span> or <span class="key">←</span> / <span class="key">→</span> to move</p>
+                <p class="controls-info">Press <span class="key">SPACE</span> / <span class="key">W</span> / <span class="key">↑</span> to jump</p>
+                <p class="controls-info">Dodge the beams to survive!</p>
+            </div>
+            <button id="start-btn" class="game-btn">
+                <span class="btn-text">START GAME</span>
+                <span class="btn-glow"></span>
+            </button>
+        </div>
+        
+        <!-- Game UI -->
+        <div id="game-ui" class="hidden">
+            <div class="ui-top">
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <span id="time-display" class="time-display">0:00 / 2:00</span>
+                </div>
+                <div id="score-display" class="score-display">
+                    <span class="score-label">SCORE</span>
+                    <span id="score-value" class="score-value">0</span>
+                </div>
+            </div>
+            <div id="combo-display" class="combo-display hidden">
+                <span id="combo-value" class="combo-value">0</span>
+                <span class="combo-label">COMBO</span>
+            </div>
+        </div>
+        
+        <!-- Game Over Screen -->
+        <div id="gameover-screen" class="screen hidden">
+            <h1 class="gameover-title">GAME OVER</h1>
+            <div class="final-stats">
+                <div class="stat-row">
+                    <span class="stat-label">Final Score</span>
+                    <span id="final-score" class="stat-value">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Best Combo</span>
+                    <span id="final-combo" class="stat-value">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Progress</span>
+                    <span id="final-progress" class="stat-value">0%</span>
+                </div>
+            </div>
+            <button id="retry-btn" class="game-btn">
+                <span class="btn-text">RETRY</span>
+                <span class="btn-glow"></span>
+            </button>
+        </div>
+        
+        <!-- Victory Screen -->
+        <div id="victory-screen" class="screen hidden">
+            <h1 class="victory-title">VICTORY!</h1>
+            <div class="victory-stars">
+                <span class="star">★</span>
+                <span class="star">★</span>
+                <span class="star">★</span>
+            </div>
+            <div class="final-stats">
+                <div class="stat-row">
+                    <span class="stat-label">Final Score</span>
+                    <span id="victory-score" class="stat-value">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Best Combo</span>
+                    <span id="victory-combo" class="stat-value">0</span>
+                </div>
+            </div>
+            <button id="replay-btn" class="game-btn">
+                <span class="btn-text">PLAY AGAIN</span>
+                <span class="btn-glow"></span>
+            </button>
+        </div>
+    </div>
+    
+    <script src="game.js"></script>
+</body>
+</html>
