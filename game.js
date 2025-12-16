@@ -72,6 +72,9 @@ let lastFlashLaserSpawn = 0;
 var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
                ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
+// Track input mode to prevent conflicts between touch and keyboard
+var inputMode = 'none'; // 'keyboard', 'touch', or 'none'
+
 const startScreen = document.getElementById('start-screen');
 const gameUI = document.getElementById('game-ui');
 const gameoverScreen = document.getElementById('gameover-screen');
@@ -85,17 +88,30 @@ const comboValue = document.getElementById('combo-value');
 function init() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    
+    // PC Controls - only add if not primarily a mobile device
+    if (!isMobile) {
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+    }
+    
+    // Mobile Controls - always add touch listeners but they check inputMode
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
     canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
     
-    // Mouse trail tracking
-    window.addEventListener('mousemove', handleMouseMove);
+    // Mouse trail tracking - only for non-mobile
+    if (!isMobile) {
+        window.addEventListener('mousemove', handleMouseMove);
+    }
     
     if (isMobile) showMobileControlsHint();
-    canvas.addEventListener('click', function() { if (gameState === 'gameover') startGame(); });
+    
+    // Click handler for retry - only for non-mobile
+    if (!isMobile) {
+        canvas.addEventListener('click', function() { if (gameState === 'gameover') startGame(); });
+    }
+    
     document.getElementById('start-btn').addEventListener('click', startGame);
     document.getElementById('retry-btn').addEventListener('click', startGame);
     document.getElementById('replay-btn').addEventListener('click', startGame);
@@ -240,14 +256,14 @@ function drawMouseTrail() {
             ctx.shadowBlur = 12 + Math.sin(p.flash * 2) * 6;
             ctx.fillStyle = p.color;
             
-            var size = p.size * p.life;
-            ctx.fillRect(p.x - size/2, p.y - size/2, size, size);
+            var trailSize = p.size * p.life;
+            ctx.fillRect(p.x - trailSize/2, p.y - trailSize/2, trailSize, trailSize);
             
             // Small bright core
             ctx.fillStyle = '#ffffff';
             ctx.globalAlpha = alpha * 0.7;
-            var coreSize = size * 0.4;
-            ctx.fillRect(p.x - coreSize/2, p.y - coreSize/2, coreSize, coreSize);
+            var trailCoreSize = trailSize * 0.4;
+            ctx.fillRect(p.x - trailCoreSize/2, p.y - trailCoreSize/2, trailCoreSize, trailCoreSize);
         }
     }
     
@@ -333,6 +349,15 @@ function initBackgroundParticles() {
 }
 
 function handleKeyDown(e) {
+    // Set input mode to keyboard when keyboard is used
+    if (inputMode !== 'keyboard') {
+        inputMode = 'keyboard';
+        // Reset any touch-based key states
+        keys.left = false;
+        keys.right = false;
+        keys.jump = false;
+    }
+    
     if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
     if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
     if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
@@ -343,6 +368,9 @@ function handleKeyDown(e) {
 }
 
 function handleKeyUp(e) {
+    // Only process if we're in keyboard mode
+    if (inputMode !== 'keyboard') return;
+    
     if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
     if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
     if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.jump = false;
@@ -352,57 +380,125 @@ var touchStartX = 0, touchStartY = 0, touchStartTime = 0;
 var swipeThreshold = 40, swipeTimeThreshold = 400;
 var isTouching = false, activeTouchId = null, swipeMovementTimer = null, swipeMovementDuration = 150;
 
+function clearSwipeTimer() {
+    if (swipeMovementTimer) {
+        clearTimeout(swipeMovementTimer);
+        swipeMovementTimer = null;
+    }
+}
+
 function handleTouchStart(e) {
     e.preventDefault();
+    
+    // Set input mode to touch
+    if (inputMode !== 'touch') {
+        inputMode = 'touch';
+        // Reset any keyboard-based key states
+        keys.left = false;
+        keys.right = false;
+        keys.jump = false;
+        clearSwipeTimer();
+    }
+    
     if (isTouching) return;
     var touch = e.touches[0];
-    touchStartX = touch.clientX; touchStartY = touch.clientY;
-    touchStartTime = Date.now(); isTouching = true; activeTouchId = touch.identifier;
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    touchStartTime = Date.now();
+    isTouching = true;
+    activeTouchId = touch.identifier;
+    
     if (gameState === 'menu') startGame();
     else if (gameState === 'gameover') startGame();
 }
 
 function handleTouchMove(e) {
     if (!isTouching || gameState !== 'playing') return;
+    if (inputMode !== 'touch') return; // Only process if in touch mode
+    
     e.preventDefault();
     var touch = null;
     for (var i = 0; i < e.touches.length; i++) {
-        if (e.touches[i].identifier === activeTouchId) { touch = e.touches[i]; break; }
+        if (e.touches[i].identifier === activeTouchId) {
+            touch = e.touches[i];
+            break;
+        }
     }
     if (!touch) return;
-    var diffX = touch.clientX - touchStartX, diffY = touch.clientY - touchStartY;
+    
+    var diffX = touch.clientX - touchStartX;
+    var diffY = touch.clientY - touchStartY;
+    
+    // Handle jump (swipe up)
     if (diffY < -swipeThreshold && Math.abs(diffY) > Math.abs(diffX) && !player.isJumping) {
         keys.jump = true;
-        touchStartX = touch.clientX; touchStartY = touch.clientY; touchStartTime = Date.now();
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchStartTime = Date.now();
+        // Reset jump after a short delay to allow the jump to register
+        setTimeout(function() { keys.jump = false; }, 100);
     }
+    
+    // Handle horizontal movement (swipe left/right)
     if (Math.abs(diffX) > swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
-        if (swipeMovementTimer) clearTimeout(swipeMovementTimer);
-        keys.left = diffX < 0; keys.right = diffX > 0;
-        touchStartX = touch.clientX; touchStartY = touch.clientY; touchStartTime = Date.now();
-        swipeMovementTimer = setTimeout(function() { keys.left = false; keys.right = false; }, swipeMovementDuration);
+        clearSwipeTimer();
+        keys.left = diffX < 0;
+        keys.right = diffX > 0;
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchStartTime = Date.now();
+        swipeMovementTimer = setTimeout(function() {
+            keys.left = false;
+            keys.right = false;
+        }, swipeMovementDuration);
     }
 }
 
 function handleTouchEnd(e) {
     e.preventDefault();
+    
+    if (inputMode !== 'touch') return; // Only process if in touch mode
+    
     var touchEnded = true;
     for (var i = 0; i < e.touches.length; i++) {
-        if (e.touches[i].identifier === activeTouchId) { touchEnded = false; break; }
+        if (e.touches[i].identifier === activeTouchId) {
+            touchEnded = false;
+            break;
+        }
     }
+    
     if (touchEnded) {
         var timeDiff = Date.now() - touchStartTime;
         if (timeDiff < swipeTimeThreshold && gameState === 'playing') {
             var touch = e.changedTouches[0];
-            var diffX = touch.clientX - touchStartX, diffY = touch.clientY - touchStartY;
+            var diffX = touch.clientX - touchStartX;
+            var diffY = touch.clientY - touchStartY;
+            
+            // Quick swipe up for jump
             if (Math.abs(diffY) > swipeThreshold && diffY < 0 && Math.abs(diffY) > Math.abs(diffX)) {
-                if (!player.isJumping) keys.jump = true;
-            } else if (Math.abs(diffX) > swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
-                if (swipeMovementTimer) clearTimeout(swipeMovementTimer);
-                keys.left = diffX < 0; keys.right = diffX > 0;
-                swipeMovementTimer = setTimeout(function() { keys.left = false; keys.right = false; }, swipeMovementDuration);
+                if (!player.isJumping) {
+                    keys.jump = true;
+                    setTimeout(function() { keys.jump = false; }, 100);
+                }
+            }
+            // Quick swipe left/right for movement
+            else if (Math.abs(diffX) > swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
+                clearSwipeTimer();
+                keys.left = diffX < 0;
+                keys.right = diffX > 0;
+                swipeMovementTimer = setTimeout(function() {
+                    keys.left = false;
+                    keys.right = false;
+                }, swipeMovementDuration);
             }
         }
-        isTouching = false; activeTouchId = null; touchStartX = 0; touchStartY = 0; keys.jump = false;
+        
+        // Reset touch state
+        isTouching = false;
+        activeTouchId = null;
+        touchStartX = 0;
+        touchStartY = 0;
+        // Don't reset keys.jump here - let the timeout handle it
     }
 }
 
@@ -416,8 +512,20 @@ function startGame() {
     difficultyMult = 1; globalGlow = 0;
     deathAnimationState = null;
     lastBeamSpawn = 0; lastSweeperSpawn = 0; lastRainSpawn = 0; lastLaserSpawn = 0; lastFlashLaserSpawn = 0;
-    startScreen.classList.add('hidden'); gameoverScreen.classList.add('hidden');
-    victoryScreen.classList.add('hidden'); gameUI.classList.remove('hidden');
+    
+    // Reset all key states
+    keys.left = false;
+    keys.right = false;
+    keys.jump = false;
+    clearSwipeTimer();
+    
+    // Hide all screens and show game UI
+    startScreen.classList.add('hidden');
+    gameoverScreen.classList.add('hidden');
+    victoryScreen.classList.add('hidden');
+    gameUI.classList.remove('hidden');
+    
+    // Stop any playing sounds and start background music
     deathSound.pause(); deathSound.currentTime = 0;
     loserSound.pause(); loserSound.currentTime = 0;
     bgMusic.currentTime = 0;
@@ -517,9 +625,21 @@ function drawDeathAnimation() {
 function gameOver() {
     gameState = 'gameover';
     gameUI.classList.add('hidden');
+    
+    // Reset all key states to prevent stuck keys
+    keys.left = false;
+    keys.right = false;
+    keys.jump = false;
+    clearSwipeTimer();
+    
+    // Update the HTML game over screen stats (even though we draw our own)
     document.getElementById('final-score').textContent = score;
     document.getElementById('final-combo').textContent = maxCombo;
     document.getElementById('final-progress').textContent = Math.floor((gameTime / gameDuration) * 100) + '%';
+    
+    // Note: We don't show gameoverScreen HTML element because we draw custom game over on canvas
+    // gameoverScreen.classList.remove('hidden'); // Uncomment to use HTML version instead
+    
     loserSound.currentTime = 0;
     loserSound.play().catch(function(e) { console.log('Loser sound failed:', e); });
 }
@@ -527,9 +647,20 @@ function gameOver() {
 function victory() {
     gameState = 'victory';
     gameUI.classList.add('hidden');
+    
+    // Reset all key states
+    keys.left = false;
+    keys.right = false;
+    keys.jump = false;
+    clearSwipeTimer();
+    
     victoryScreen.classList.remove('hidden');
     document.getElementById('victory-score').textContent = score;
     document.getElementById('victory-combo').textContent = maxCombo;
+    
+    // Stop background music for victory
+    bgMusic.pause();
+    
     for (var i = 0; i < 100; i++) createParticle(Math.random() * canvas.width, Math.random() * canvas.height, 'celebration');
 }
 
@@ -942,67 +1073,93 @@ function drawMenuScreen() {
         { color: 'rgba(255, 0, 170, ', glow: '#ff00aa' },    // Magenta
         { color: 'rgba(0, 255, 136, ', glow: '#00ff88' },    // Green
         { color: 'rgba(255, 71, 87, ', glow: '#ff4757' },    // Red
-        { color: 'rgba(124, 77, 255, ', glow: '#7c4dff' }    // Purple
+        { color: 'rgba(124, 77, 255, ', glow: '#7c4dff' },   // Purple
+        { color: 'rgba(0, 229, 255, ', glow: '#00e5ff' },    // Electric Blue
+        { color: 'rgba(255, 23, 68, ', glow: '#ff1744' },    // Bright Red
+        { color: 'rgba(118, 255, 3, ', glow: '#76ff03' }     // Lime
     ];
     
-    // Vertical laser beams - more of them with varied timing
-    for (var i = 0; i < 12; i++) {
-        var beamX = (canvas.width / 13) * (i + 1);
+    // Vertical laser beams - many more with varied timing
+    for (var i = 0; i < 18; i++) {
+        var beamX = (canvas.width / 19) * (i + 1);
         var colorIndex = i % laserColors.length;
-        var beamAlpha = 0.08 + Math.sin(pulsePhase * 3 + i * 0.8) * 0.06;
-        var beamWidth = 15 + Math.sin(pulsePhase * 4 + i * 0.6) * 12;
-        var flashIntensity = Math.sin(pulsePhase * 6 + i * 1.2);
+        var beamAlpha = 0.1 + Math.sin(pulsePhase * 3 + i * 0.7) * 0.08;
+        var beamWidth = 20 + Math.sin(pulsePhase * 4 + i * 0.5) * 15;
+        var beamFlash = Math.sin(pulsePhase * 6 + i * 1.2);
         
-        // Outer glow
         ctx.shadowColor = laserColors[colorIndex].glow;
-        ctx.shadowBlur = 30 + flashIntensity * 15;
+        ctx.shadowBlur = 40 + beamFlash * 20;
         ctx.fillStyle = laserColors[colorIndex].color + beamAlpha + ')';
         ctx.fillRect(beamX - beamWidth/2, 0, beamWidth, canvas.height);
         
-        // Bright core when flashing
-        if (flashIntensity > 0.7) {
+        if (beamFlash > 0.5) {
             ctx.fillStyle = laserColors[colorIndex].color + (beamAlpha * 2) + ')';
             ctx.fillRect(beamX - beamWidth/4, 0, beamWidth/2, canvas.height);
+            ctx.fillStyle = 'rgba(255, 255, 255, ' + (beamAlpha * beamFlash) + ')';
+            ctx.fillRect(beamX - beamWidth/8, 0, beamWidth/4, canvas.height);
         }
     }
     ctx.shadowBlur = 0;
     
-    // Horizontal sweeping laser beams
-    for (var i = 0; i < 6; i++) {
-        var sweepY = canvas.height * 0.15 + (canvas.height * 0.7 / 6) * i;
-        var sweepOffset = Math.sin(pulsePhase * 2 + i * 1.5) * canvas.width * 0.3;
-        var sweepWidth = canvas.width * 0.4 + Math.sin(pulsePhase * 3 + i) * 100;
+    // Horizontal sweeping laser beams - more of them
+    for (var i = 0; i < 10; i++) {
+        var sweepY = canvas.height * 0.1 + (canvas.height * 0.8 / 10) * i;
+        var sweepOffset = Math.sin(pulsePhase * 2 + i * 1.3) * canvas.width * 0.35;
+        var sweepWidth = canvas.width * 0.5 + Math.sin(pulsePhase * 3 + i) * 150;
         var sweepX = canvas.width / 2 + sweepOffset - sweepWidth / 2;
         var colorIndex = (i + 3) % laserColors.length;
-        var sweepAlpha = 0.06 + Math.sin(pulsePhase * 4 + i * 2) * 0.04;
-        var sweepHeight = 8 + Math.sin(pulsePhase * 5 + i) * 5;
+        var sweepAlpha = 0.08 + Math.sin(pulsePhase * 4 + i * 2) * 0.05;
+        var sweepHeight = 10 + Math.sin(pulsePhase * 5 + i) * 6;
         
         ctx.shadowColor = laserColors[colorIndex].glow;
-        ctx.shadowBlur = 25;
+        ctx.shadowBlur = 30;
         ctx.fillStyle = laserColors[colorIndex].color + sweepAlpha + ')';
         ctx.fillRect(sweepX, sweepY - sweepHeight/2, sweepWidth, sweepHeight);
         
-        // Core line
-        ctx.fillStyle = 'rgba(255, 255, 255, ' + (sweepAlpha * 0.8) + ')';
-        ctx.fillRect(sweepX, sweepY - 1, sweepWidth, 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + (sweepAlpha * 0.9) + ')';
+        ctx.fillRect(sweepX, sweepY - 1.5, sweepWidth, 3);
     }
     ctx.shadowBlur = 0;
     
-    // Diagonal crossing laser beams
-    for (var i = 0; i < 8; i++) {
-        var diagPhase = pulsePhase * 1.5 + i * 0.9;
+    // Diagonal crossing laser beams - more dramatic
+    for (var i = 0; i < 14; i++) {
+        var diagPhase = pulsePhase * 1.5 + i * 0.7;
         var startX = (Math.sin(diagPhase) * 0.5 + 0.5) * canvas.width;
         var colorIndex = (i + 1) % laserColors.length;
-        var diagAlpha = 0.05 + Math.sin(pulsePhase * 5 + i * 1.3) * 0.04;
+        var diagAlpha = 0.06 + Math.sin(pulsePhase * 5 + i * 1.3) * 0.05;
+        var diagWidth = 12 + Math.sin(pulsePhase * 4 + i) * 8;
         
         ctx.save();
         ctx.translate(startX, 0);
-        ctx.rotate(Math.PI / 4 + Math.sin(diagPhase * 0.5) * 0.2);
+        ctx.rotate(Math.PI / 4 + Math.sin(diagPhase * 0.5) * 0.25);
         
         ctx.shadowColor = laserColors[colorIndex].glow;
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 25;
         ctx.fillStyle = laserColors[colorIndex].color + diagAlpha + ')';
-        ctx.fillRect(-8, -canvas.height, 16, canvas.height * 3);
+        ctx.fillRect(-diagWidth/2, -canvas.height, diagWidth, canvas.height * 3);
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + (diagAlpha * 0.5) + ')';
+        ctx.fillRect(-diagWidth/6, -canvas.height, diagWidth/3, canvas.height * 3);
+        
+        ctx.restore();
+    }
+    ctx.shadowBlur = 0;
+    
+    // Reverse diagonal beams
+    for (var i = 0; i < 10; i++) {
+        var diagPhase = pulsePhase * 1.3 + i * 0.8 + Math.PI;
+        var startX = (Math.cos(diagPhase) * 0.5 + 0.5) * canvas.width;
+        var colorIndex = (i + 5) % laserColors.length;
+        var diagAlpha = 0.05 + Math.sin(pulsePhase * 4 + i * 1.5) * 0.04;
+        
+        ctx.save();
+        ctx.translate(startX, canvas.height);
+        ctx.rotate(-Math.PI / 4 + Math.sin(diagPhase * 0.4) * 0.2);
+        
+        ctx.shadowColor = laserColors[colorIndex].glow;
+        ctx.shadowBlur = 22;
+        ctx.fillStyle = laserColors[colorIndex].color + diagAlpha + ')';
+        ctx.fillRect(-10, -canvas.height * 2, 20, canvas.height * 3);
         
         ctx.restore();
     }
@@ -1024,29 +1181,72 @@ function drawMenuScreen() {
     }
     ctx.shadowBlur = 0;
     
-    // Glowing orbs floating around - more of them
-    for (var i = 0; i < 15; i++) {
-        var orbX = canvas.width * 0.05 + (canvas.width * 0.9) * (i / 15) + Math.sin(pulsePhase * 1.2 + i * 2) * 60;
-        var orbY = canvas.height * 0.2 + Math.sin(pulsePhase * 1.8 + i * 1.3) * (canvas.height * 0.3);
-        var orbSize = 10 + Math.sin(pulsePhase * 2.5 + i) * 8;
+    // Large floating neon orbs - many more scattered across screen
+    for (var i = 0; i < 45; i++) {
+        var orbPhaseX = pulsePhase * (0.4 + (i % 5) * 0.12) + i * 1.5;
+        var orbPhaseY = pulsePhase * (0.5 + (i % 4) * 0.1) + i * 1.8;
+        var baseX = (i * 0.0618 * canvas.width) % canvas.width;
+        var baseY = (i * 0.0314 * canvas.height) % canvas.height;
+        var orbX = baseX + Math.sin(orbPhaseX) * 70;
+        var orbY = baseY + Math.cos(orbPhaseY) * 50;
+        var orbSize = 8 + Math.sin(pulsePhase * 2.5 + i) * 5 + (i % 6) * 3;
         var colorIndex = i % laserColors.length;
+        var orbPulse = 0.5 + Math.sin(pulsePhase * 3.5 + i * 0.7) * 0.4;
         
+        // Outer glow ring
+        ctx.strokeStyle = laserColors[colorIndex].glow;
+        ctx.lineWidth = 2;
         ctx.shadowColor = laserColors[colorIndex].glow;
-        ctx.shadowBlur = 35 + Math.sin(pulsePhase * 4 + i) * 15;
+        ctx.shadowBlur = 40 + Math.sin(pulsePhase * 4 + i) * 20;
+        ctx.globalAlpha = orbPulse * 0.4;
+        ctx.beginPath();
+        ctx.arc(orbX, orbY, orbSize * 1.6, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Main orb body
         ctx.fillStyle = laserColors[colorIndex].glow;
-        ctx.globalAlpha = 0.5 + Math.sin(pulsePhase * 3.5 + i) * 0.35;
+        ctx.globalAlpha = orbPulse * 0.7;
         ctx.beginPath();
         ctx.arc(orbX, orbY, orbSize, 0, Math.PI * 2);
         ctx.fill();
         
         // Inner bright core
         ctx.fillStyle = '#ffffff';
-        ctx.globalAlpha = 0.7 + Math.sin(pulsePhase * 5 + i) * 0.3;
+        ctx.globalAlpha = orbPulse * 0.9;
         ctx.beginPath();
-        ctx.arc(orbX, orbY, orbSize * 0.4, 0, Math.PI * 2);
+        ctx.arc(orbX, orbY, orbSize * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Highlight spot
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = orbPulse * 0.5;
+        ctx.beginPath();
+        ctx.arc(orbX - orbSize * 0.25, orbY - orbSize * 0.25, orbSize * 0.18, 0, Math.PI * 2);
         ctx.fill();
         
         ctx.globalAlpha = 1;
+    }
+    ctx.shadowBlur = 0;
+    
+    // Small twinkling orbs - many more
+    for (var i = 0; i < 80; i++) {
+        var twinklePhase = pulsePhase * 6 + i * 2.1;
+        var twinkleX = (canvas.width * ((i * 0.0417) % 1)) + Math.sin(pulsePhase * 0.9 + i) * 25;
+        var twinkleY = (canvas.height * ((i * 0.0523) % 1)) + Math.cos(pulsePhase * 0.7 + i) * 20;
+        var twinkleSize = Math.max(0.5, 2 + Math.sin(twinklePhase) * 2.5);
+        var twinkleAlpha = 0.3 + Math.sin(twinklePhase) * 0.5;
+        var colorIndex = i % laserColors.length;
+        
+        if (twinkleAlpha > 0 && twinkleSize > 0) {
+            ctx.shadowColor = laserColors[colorIndex].glow;
+            ctx.shadowBlur = 12;
+            ctx.fillStyle = laserColors[colorIndex].glow;
+            ctx.globalAlpha = twinkleAlpha;
+            ctx.beginPath();
+            ctx.arc(twinkleX, twinkleY, twinkleSize, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
     }
     ctx.shadowBlur = 0;
     
@@ -1097,19 +1297,86 @@ function drawMenuScreen() {
     }
     ctx.shadowBlur = 0;
     
-    // Sparkle effects - more intense
-    for (var i = 0; i < 40; i++) {
-        var sparkleX = Math.sin(pulsePhase * 0.6 + i * 0.5) * canvas.width * 0.45 + canvas.width / 2;
-        var sparkleY = Math.cos(pulsePhase * 0.4 + i * 0.7) * canvas.height * 0.4 + canvas.height / 2;
-        var sparkleSize = 2 + Math.sin(pulsePhase * 6 + i * 2.5) * 3;
+    // Spark bursts from random points
+    for (var burst = 0; burst < 10; burst++) {
+        var burstPhase = (pulsePhase * 0.6 + burst * 0.7) % 3;
+        if (burstPhase < 1.5) {
+            var burstX = canvas.width * (0.1 + (burst * 0.123) % 0.8);
+            var burstY = canvas.height * (0.1 + (burst * 0.157) % 0.8);
+            var colorIndex = burst % laserColors.length;
+            
+            for (var spark = 0; spark < 12; spark++) {
+                var sparkAngle = (Math.PI * 2 / 12) * spark + burstPhase * 2;
+                var sparkDist = burstPhase * 60;
+                var sparkX = burstX + Math.cos(sparkAngle) * sparkDist;
+                var sparkY = burstY + Math.sin(sparkAngle) * sparkDist;
+                var sparkSize = 3 * (1.5 - burstPhase);
+                var sparkAlpha = (1.5 - burstPhase) * 0.6;
+                
+                ctx.shadowColor = laserColors[colorIndex].glow;
+                ctx.shadowBlur = 15;
+                ctx.fillStyle = laserColors[colorIndex].glow;
+                ctx.globalAlpha = sparkAlpha;
+                ctx.fillRect(sparkX - sparkSize/2, sparkY - sparkSize/2, sparkSize, sparkSize);
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+    ctx.shadowBlur = 0;
+    
+    // Sparkle effects - more intense and spread out
+    for (var i = 0; i < 70; i++) {
+        var sparkleX = Math.sin(pulsePhase * 0.6 + i * 0.4) * canvas.width * 0.48 + canvas.width / 2;
+        var sparkleY = Math.cos(pulsePhase * 0.4 + i * 0.6) * canvas.height * 0.45 + canvas.height / 2;
+        var sparkleSize = Math.max(0.5, 2 + Math.sin(pulsePhase * 6 + i * 2.5) * 3);
         var sparkleAlpha = 0.4 + Math.sin(pulsePhase * 5 + i * 1.5) * 0.4;
+        var colorIndex = i % laserColors.length;
         
-        ctx.fillStyle = 'rgba(255, 255, 255, ' + sparkleAlpha + ')';
-        ctx.shadowColor = '#ffffff';
-        ctx.shadowBlur = 8;
-        ctx.beginPath();
-        ctx.arc(sparkleX, sparkleY, sparkleSize, 0, Math.PI * 2);
-        ctx.fill();
+        if (sparkleAlpha > 0.2 && sparkleSize > 0) {
+            ctx.fillStyle = i % 3 === 0 ? laserColors[colorIndex].glow : 'rgba(255, 255, 255, ' + sparkleAlpha + ')';
+            ctx.shadowColor = i % 3 === 0 ? laserColors[colorIndex].glow : '#ffffff';
+            ctx.shadowBlur = 10;
+            ctx.globalAlpha = sparkleAlpha;
+            ctx.beginPath();
+            ctx.arc(sparkleX, sparkleY, sparkleSize, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+    }
+    ctx.shadowBlur = 0;
+    
+    // Flying spark trails
+    for (var i = 0; i < 15; i++) {
+        var trailPhase = (pulsePhase * 1.2 + i * 0.5) % 2;
+        var startX = (i * 0.0667 * canvas.width) % canvas.width;
+        var startY = canvas.height * 0.1;
+        var endX = startX + (Math.sin(i * 1.5) * 0.3 + 0.1) * canvas.width;
+        var endY = canvas.height * 0.9;
+        var currentX = startX + (endX - startX) * trailPhase / 2;
+        var currentY = startY + (endY - startY) * trailPhase / 2;
+        var colorIndex = i % laserColors.length;
+        var trailAlpha = trailPhase < 1 ? (1 - trailPhase) * 0.7 : 0;
+        
+        if (trailAlpha > 0) {
+            // Trail
+            ctx.strokeStyle = laserColors[colorIndex].glow;
+            ctx.lineWidth = 2;
+            ctx.shadowColor = laserColors[colorIndex].glow;
+            ctx.shadowBlur = 15;
+            ctx.globalAlpha = trailAlpha * 0.5;
+            ctx.beginPath();
+            ctx.moveTo(currentX - 30, currentY - 30);
+            ctx.lineTo(currentX, currentY);
+            ctx.stroke();
+            
+            // Head
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = trailAlpha;
+            ctx.beginPath();
+            ctx.arc(currentX, currentY, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
     }
     ctx.shadowBlur = 0;
     
