@@ -5,21 +5,38 @@
     box-sizing: border-box;
 }
 
+html {
+    height: 100%;
+    height: -webkit-fill-available;
+}
+
 body {
     font-family: 'Rajdhani', sans-serif;
     background: #1a0a1a;
     overflow: hidden;
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
 }
 
 #game-container {
-    position: relative;
-    width: 100vw;
-    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
     display: flex;
     justify-content: center;
     align-items: center;
+    overflow: hidden;
 }
 
 #gameCanvas {
@@ -29,13 +46,16 @@ body {
     width: 100%;
     height: 100%;
     z-index: 1;
+    display: block;
 }
 
 /* Screen Styles */
 .screen {
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
+    right: 0;
+    bottom: 0;
     width: 100%;
     height: 100%;
     display: flex;
@@ -45,6 +65,8 @@ body {
     z-index: 10;
     background: radial-gradient(ellipse at center, rgba(30, 10, 30, 0.4) 0%, rgba(10, 2, 10, 0.6) 100%);
     overflow: hidden;
+    overflow-y: auto;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 .screen::before {
@@ -664,15 +686,21 @@ body {
     -webkit-user-select: none;
     user-select: none;
     touch-action: none;
+    overscroll-behavior: none;
+}
+
+.mobile-device #game-container {
+    touch-action: none;
+    overscroll-behavior: none;
 }
 
 .mobile-device .controls-info {
-    font-size: 1.1rem;
-    margin: 8px 0;
+    font-size: 1rem;
+    margin: 6px 0;
 }
 
 .mobile-device .mobile-tip {
-    margin-top: 20px;
+    margin-top: 15px;
     color: #ffd93d;
     font-weight: 600;
     animation: mobileTipPulse 1.5s ease-in-out infinite;
@@ -691,12 +719,63 @@ body {
 
 /* Larger touch targets for mobile */
 .mobile-device .game-btn {
-    padding: 20px 50px;
-    font-size: 1.3rem;
-    min-height: 60px;
+    padding: 18px 45px;
+    font-size: 1.2rem;
+    min-height: 55px;
 }
 
-/* Adjust UI for mobile screens */
+/* Adjust UI for mobile screens - landscape */
+@media (max-height: 500px) and (orientation: landscape) {
+    .game-title {
+        font-size: 2rem;
+        letter-spacing: 0.08em;
+    }
+    
+    .game-title.subtitle {
+        font-size: 1.6rem;
+    }
+    
+    .title-container {
+        margin-bottom: 15px;
+    }
+    
+    .start-info {
+        margin-bottom: 15px;
+    }
+    
+    .controls-info {
+        font-size: 0.9rem;
+        margin: 4px 0;
+    }
+    
+    .game-btn {
+        padding: 12px 35px;
+        font-size: 1rem;
+    }
+    
+    .final-stats {
+        padding: 15px 25px;
+        margin-bottom: 20px;
+    }
+    
+    .stat-row {
+        min-width: 200px;
+        margin: 8px 0;
+    }
+    
+    .gameover-title,
+    .victory-title {
+        font-size: 2rem;
+        margin-bottom: 20px;
+    }
+    
+    .victory-stars {
+        font-size: 2rem;
+        margin-bottom: 15px;
+    }
+}
+
+/* Adjust UI for mobile screens - portrait small */
 @media (max-width: 480px) {
     .game-title {
         font-size: 2.2rem;
@@ -707,64 +786,141 @@ body {
         font-size: 1.8rem;
     }
     
+    .title-container {
+        margin-bottom: 25px;
+    }
+    
+    .start-info {
+        margin-bottom: 25px;
+        padding: 0 15px;
+    }
+    
+    .controls-info {
+        font-size: 1rem;
+    }
+    
     .ui-top {
         top: 10px;
         left: 10px;
         right: 10px;
+        padding-top: env(safe-area-inset-top);
     }
     
     .progress-bar {
-        width: 150px;
-        height: 10px;
+        width: 120px;
+        height: 8px;
     }
     
     .time-display {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
     }
     
     .score-value {
-        font-size: 1.4rem;
+        font-size: 1.3rem;
     }
     
     .score-label {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
     }
     
     .combo-display {
-        right: 20px;
+        right: 15px;
     }
     
     .combo-value {
-        font-size: 2rem;
+        font-size: 1.8rem;
     }
     
     .combo-label {
-        font-size: 0.9rem;
+        font-size: 0.8rem;
     }
     
     .final-stats {
-        padding: 20px 30px;
+        padding: 15px 20px;
+        margin: 0 15px 25px 15px;
+        width: calc(100% - 30px);
+        max-width: 320px;
     }
     
     .stat-row {
-        min-width: 250px;
+        min-width: auto;
+        width: 100%;
     }
     
     .stat-label {
-        font-size: 1rem;
+        font-size: 0.95rem;
     }
     
     .stat-value {
-        font-size: 1.4rem;
+        font-size: 1.3rem;
     }
     
     .gameover-title,
     .victory-title {
-        font-size: 2.5rem;
+        font-size: 2.2rem;
     }
     
     .victory-stars {
-        font-size: 2.5rem;
+        font-size: 2.2rem;
+    }
+    
+    .game-btn {
+        padding: 16px 40px;
+        font-size: 1.1rem;
+    }
+}
+
+/* Very small screens */
+@media (max-width: 360px) {
+    .game-title {
+        font-size: 1.8rem;
+    }
+    
+    .game-title.subtitle {
+        font-size: 1.5rem;
+    }
+    
+    .controls-info {
+        font-size: 0.9rem;
+    }
+    
+    .key {
+        padding: 3px 8px;
+        font-size: 0.8rem;
+    }
+    
+    .progress-bar {
+        width: 100px;
+    }
+    
+    .game-btn {
+        padding: 14px 30px;
+        font-size: 1rem;
+    }
+    
+    .final-stats {
+        padding: 12px 15px;
+    }
+    
+    .gameover-title,
+    .victory-title {
+        font-size: 1.8rem;
+    }
+}
+
+/* Handle notched devices */
+@supports (padding: env(safe-area-inset-top)) {
+    .screen {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+    }
+    
+    .ui-top {
+        top: calc(10px + env(safe-area-inset-top));
+        left: calc(10px + env(safe-area-inset-left));
+        right: calc(10px + env(safe-area-inset-right));
     }
 }
 

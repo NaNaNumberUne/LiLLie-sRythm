@@ -39,12 +39,19 @@ let difficultyMult = 1;
 const platform = { leftEdge: 0, rightEdge: 0, width: 0 };
 const JUMP_UNLOCK_TIME = 60000;
 
+// Base player dimensions - will be scaled for mobile
+var basePlayerSize = 35;
+var basePlayerSpeed = 7;
+
 const player = {
-    x: 0, y: 0, width: 35, height: 35, speed: 7,
+    x: 0, y: 0, width: basePlayerSize, height: basePlayerSize, speed: basePlayerSpeed,
     targetX: 0, trail: [], invincible: false,
     groundY: 0, velocityY: 0, isJumping: false, isFalling: false,
     jumpPower: -18, gravity: 0.8
 };
+
+// Scale factor for mobile devices
+var mobileScaleFactor = 1;
 
 const keys = { left: false, right: false, jump: false };
 let obstacles = [];
@@ -87,7 +94,15 @@ const comboValue = document.getElementById('combo-value');
 
 function init() {
     resizeCanvas();
+    
+    // Use multiple resize event listeners for better mobile support
     window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('orientationchange', handleOrientationChange);
+    
+    // Visual viewport API for better mobile resize handling
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', handleVisualViewportResize);
+    }
     
     // PC Controls - only add if not primarily a mobile device
     if (!isMobile) {
@@ -99,6 +114,13 @@ function init() {
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
     canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+    
+    // Prevent default touch behaviors that can cause issues
+    document.addEventListener('touchmove', function(e) {
+        if (gameState === 'playing' || gameState === 'dying') {
+            e.preventDefault();
+        }
+    }, { passive: false });
     
     // Mouse trail tracking - only for non-mobile
     if (!isMobile) {
@@ -304,7 +326,8 @@ function drawMouseTrail() {
 function showMobileControlsHint() {
     var startInfo = document.querySelector('.start-info');
     if (startInfo) {
-        startInfo.innerHTML = '<p class="controls-info">Swipe <span class="key">←</span> / <span class="key">→</span> to move</p>' +
+        startInfo.innerHTML = '<p class="controls-info">Tap <span class="key">LEFT</span> side to go left</p>' +
+                              '<p class="controls-info">Tap <span class="key">RIGHT</span> side to go right</p>' +
                               '<p class="controls-info">Swipe <span class="key">↑</span> to jump (after 1 min)</p>' +
                               '<p class="controls-info mobile-tip">Tap anywhere to start!</p>';
     }
@@ -312,16 +335,81 @@ function showMobileControlsHint() {
 }
 
 function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    player.groundY = canvas.height - 100;
-    player.y = player.groundY;
-    player.x = canvas.width / 2;
-    player.targetX = player.x;
-    platform.width = canvas.width * 0.7;
-    platform.leftEdge = (canvas.width - platform.width) / 2;
+    // Get the actual viewport dimensions accounting for mobile browser chrome
+    var viewportWidth = window.innerWidth;
+    var viewportHeight = window.innerHeight;
+    
+    // Use visualViewport API if available for more accurate mobile dimensions
+    if (window.visualViewport) {
+        viewportWidth = window.visualViewport.width;
+        viewportHeight = window.visualViewport.height;
+    }
+    
+    // Ensure minimum dimensions
+    viewportWidth = Math.max(viewportWidth, 320);
+    viewportHeight = Math.max(viewportHeight, 200);
+    
+    // Set canvas dimensions
+    canvas.width = viewportWidth;
+    canvas.height = viewportHeight;
+    
+    // Calculate mobile scale factor based on screen size
+    var referenceWidth = 800; // Reference desktop width
+    mobileScaleFactor = Math.max(0.7, Math.min(1.2, viewportWidth / referenceWidth));
+    
+    // Scale player size for mobile
+    if (isMobile) {
+        player.width = Math.max(25, basePlayerSize * mobileScaleFactor);
+        player.height = Math.max(25, basePlayerSize * mobileScaleFactor);
+    } else {
+        player.width = basePlayerSize;
+        player.height = basePlayerSize;
+    }
+    
+    // Adjust ground position based on screen height
+    // Use a percentage-based approach for better mobile scaling
+    var groundOffset = Math.min(100, viewportHeight * 0.12);
+    player.groundY = viewportHeight - groundOffset;
+    
+    // Only reset player position if not in the middle of a game
+    if (gameState !== 'playing' && gameState !== 'dying') {
+        player.y = player.groundY;
+        player.x = viewportWidth / 2;
+        player.targetX = player.x;
+    } else {
+        // During gameplay, just adjust groundY and keep relative position
+        if (!player.isJumping && !player.isFalling) {
+            player.y = player.groundY;
+        }
+        // Clamp player position to new screen bounds
+        player.x = Math.max(player.width / 2, Math.min(viewportWidth - player.width / 2, player.x));
+        player.targetX = Math.max(player.width / 2, Math.min(viewportWidth - player.width / 2, player.targetX));
+    }
+    
+    // Adjust platform width based on screen size
+    // Wider platform on smaller screens for better playability
+    var platformWidthPercent = isMobile ? 0.85 : 0.7;
+    if (viewportWidth < 400) {
+        platformWidthPercent = 0.9;
+    }
+    platform.width = viewportWidth * platformWidthPercent;
+    platform.leftEdge = (viewportWidth - platform.width) / 2;
     platform.rightEdge = platform.leftEdge + platform.width;
+    
     initBackground();
+}
+
+// Handle orientation changes on mobile
+function handleOrientationChange() {
+    // Small delay to let the browser finish orientation change
+    setTimeout(function() {
+        resizeCanvas();
+    }, 100);
+}
+
+// Handle visual viewport resize (for mobile keyboard, etc.)
+function handleVisualViewportResize() {
+    resizeCanvas();
 }
 
 function initBackground() {
@@ -377,13 +465,16 @@ function handleKeyUp(e) {
 }
 
 var touchStartX = 0, touchStartY = 0, touchStartTime = 0;
-var swipeThreshold = 40, swipeTimeThreshold = 400;
-var isTouching = false, activeTouchId = null, swipeMovementTimer = null, swipeMovementDuration = 150;
+var swipeThreshold = 50, swipeTimeThreshold = 400;
+var isTouching = false, activeTouchId = null, movementTimer = null, movementDuration = 120;
 
-function clearSwipeTimer() {
-    if (swipeMovementTimer) {
-        clearTimeout(swipeMovementTimer);
-        swipeMovementTimer = null;
+// Track if we're currently holding a side for continuous movement
+var holdingLeft = false, holdingRight = false;
+
+function clearMovementTimer() {
+    if (movementTimer) {
+        clearTimeout(movementTimer);
+        movementTimer = null;
     }
 }
 
@@ -397,24 +488,53 @@ function handleTouchStart(e) {
         keys.left = false;
         keys.right = false;
         keys.jump = false;
-        clearSwipeTimer();
+        clearMovementTimer();
     }
     
-    if (isTouching) return;
     var touch = e.touches[0];
     touchStartX = touch.clientX;
     touchStartY = touch.clientY;
     touchStartTime = Date.now();
+    
+    // Handle menu/gameover states - tap anywhere to start
+    if (gameState === 'menu') {
+        startGame();
+        return;
+    }
+    if (gameState === 'gameover') {
+        startGame();
+        return;
+    }
+    
+    // During gameplay - tap left/right side to move
+    if (gameState === 'playing') {
+        var screenMiddle = canvas.width / 2;
+        
+        // Clear any existing movement
+        clearMovementTimer();
+        
+        if (touch.clientX < screenMiddle) {
+            // Tapped on left side - move left
+            keys.left = true;
+            keys.right = false;
+            holdingLeft = true;
+            holdingRight = false;
+        } else {
+            // Tapped on right side - move right
+            keys.right = true;
+            keys.left = false;
+            holdingRight = true;
+            holdingLeft = false;
+        }
+    }
+    
     isTouching = true;
     activeTouchId = touch.identifier;
-    
-    if (gameState === 'menu') startGame();
-    else if (gameState === 'gameover') startGame();
 }
 
 function handleTouchMove(e) {
     if (!isTouching || gameState !== 'playing') return;
-    if (inputMode !== 'touch') return; // Only process if in touch mode
+    if (inputMode !== 'touch') return;
     
     e.preventDefault();
     var touch = null;
@@ -426,38 +546,36 @@ function handleTouchMove(e) {
     }
     if (!touch) return;
     
-    var diffX = touch.clientX - touchStartX;
     var diffY = touch.clientY - touchStartY;
     
-    // Handle jump (swipe up)
-    if (diffY < -swipeThreshold && Math.abs(diffY) > Math.abs(diffX) && !player.isJumping) {
+    // Handle jump (swipe up) - only after 1 minute mark
+    if (diffY < -swipeThreshold && !player.isJumping) {
         keys.jump = true;
-        touchStartX = touch.clientX;
+        // Reset the touch start position so we don't trigger multiple jumps
         touchStartY = touch.clientY;
-        touchStartTime = Date.now();
         // Reset jump after a short delay to allow the jump to register
         setTimeout(function() { keys.jump = false; }, 100);
     }
     
-    // Handle horizontal movement (swipe left/right)
-    if (Math.abs(diffX) > swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
-        clearSwipeTimer();
-        keys.left = diffX < 0;
-        keys.right = diffX > 0;
-        touchStartX = touch.clientX;
-        touchStartY = touch.clientY;
-        touchStartTime = Date.now();
-        swipeMovementTimer = setTimeout(function() {
-            keys.left = false;
-            keys.right = false;
-        }, swipeMovementDuration);
+    // Update movement based on current touch position (allows sliding finger to change direction)
+    var screenMiddle = canvas.width / 2;
+    if (touch.clientX < screenMiddle) {
+        keys.left = true;
+        keys.right = false;
+        holdingLeft = true;
+        holdingRight = false;
+    } else {
+        keys.right = true;
+        keys.left = false;
+        holdingRight = true;
+        holdingLeft = false;
     }
 }
 
 function handleTouchEnd(e) {
     e.preventDefault();
     
-    if (inputMode !== 'touch') return; // Only process if in touch mode
+    if (inputMode !== 'touch') return;
     
     var touchEnded = true;
     for (var i = 0; i < e.touches.length; i++) {
@@ -468,37 +586,30 @@ function handleTouchEnd(e) {
     }
     
     if (touchEnded) {
-        var timeDiff = Date.now() - touchStartTime;
-        if (timeDiff < swipeTimeThreshold && gameState === 'playing') {
+        // Check for swipe up for jump before ending
+        if (gameState === 'playing') {
             var touch = e.changedTouches[0];
-            var diffX = touch.clientX - touchStartX;
             var diffY = touch.clientY - touchStartY;
+            var timeDiff = Date.now() - touchStartTime;
             
             // Quick swipe up for jump
-            if (Math.abs(diffY) > swipeThreshold && diffY < 0 && Math.abs(diffY) > Math.abs(diffX)) {
-                if (!player.isJumping) {
-                    keys.jump = true;
-                    setTimeout(function() { keys.jump = false; }, 100);
-                }
-            }
-            // Quick swipe left/right for movement
-            else if (Math.abs(diffX) > swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
-                clearSwipeTimer();
-                keys.left = diffX < 0;
-                keys.right = diffX > 0;
-                swipeMovementTimer = setTimeout(function() {
-                    keys.left = false;
-                    keys.right = false;
-                }, swipeMovementDuration);
+            if (timeDiff < swipeTimeThreshold && diffY < -swipeThreshold && !player.isJumping) {
+                keys.jump = true;
+                setTimeout(function() { keys.jump = false; }, 100);
             }
         }
+        
+        // Stop movement when finger is lifted
+        keys.left = false;
+        keys.right = false;
+        holdingLeft = false;
+        holdingRight = false;
         
         // Reset touch state
         isTouching = false;
         activeTouchId = null;
         touchStartX = 0;
         touchStartY = 0;
-        // Don't reset keys.jump here - let the timeout handle it
     }
 }
 
@@ -517,7 +628,7 @@ function startGame() {
     keys.left = false;
     keys.right = false;
     keys.jump = false;
-    clearSwipeTimer();
+    clearMovementTimer();
     
     // Hide all screens and show game UI
     startScreen.classList.add('hidden');
@@ -630,7 +741,7 @@ function gameOver() {
     keys.left = false;
     keys.right = false;
     keys.jump = false;
-    clearSwipeTimer();
+    clearMovementTimer();
     
     // Update the HTML game over screen stats (even though we draw our own)
     document.getElementById('final-score').textContent = score;
@@ -652,7 +763,7 @@ function victory() {
     keys.left = false;
     keys.right = false;
     keys.jump = false;
-    clearSwipeTimer();
+    clearMovementTimer();
     
     victoryScreen.classList.remove('hidden');
     document.getElementById('victory-score').textContent = score;
@@ -1049,21 +1160,143 @@ function render() {
 }
 
 function drawMenuScreen() {
-    // Animated background
-    var gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    var hue1 = 280 + Math.sin(pulsePhase * 0.5) * 20;
-    var hue2 = 320 + Math.sin(pulsePhase * 0.7) * 20;
-    gradient.addColorStop(0, 'hsl('+hue1+',60%,8%)');
-    gradient.addColorStop(0.5, 'hsl('+hue2+',70%,12%)');
-    gradient.addColorStop(1, 'hsl('+hue1+',50%,5%)');
+    // UNIQUE TITLE SCREEN - Deep space cosmic theme (different from game's city theme)
+    
+    // Deep space gradient background - blues and purples
+    var gradient = ctx.createRadialGradient(
+        canvas.width / 2, canvas.height / 2, 0,
+        canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height)
+    );
+    var hue1 = 220 + Math.sin(pulsePhase * 0.3) * 15;
+    var hue2 = 260 + Math.sin(pulsePhase * 0.5) * 20;
+    var hue3 = 200 + Math.sin(pulsePhase * 0.4) * 10;
+    gradient.addColorStop(0, 'hsl('+hue2+',80%,15%)');
+    gradient.addColorStop(0.3, 'hsl('+hue1+',70%,8%)');
+    gradient.addColorStop(0.6, 'hsl('+hue3+',60%,5%)');
+    gradient.addColorStop(1, 'hsl(240,50%,2%)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Draw animated buildings in background
-    for (var i = 0; i < buildings.length; i++) drawBuilding(buildings[i]);
+    // Distant nebula clouds
+    for (var n = 0; n < 5; n++) {
+        var nebulaX = canvas.width * (0.2 + n * 0.15) + Math.sin(pulsePhase * 0.2 + n) * 50;
+        var nebulaY = canvas.height * (0.3 + (n % 3) * 0.2) + Math.cos(pulsePhase * 0.15 + n) * 30;
+        var nebulaSize = 150 + n * 50 + Math.sin(pulsePhase * 0.5 + n) * 30;
+        var nebulaColors = ['rgba(138, 43, 226, ', 'rgba(75, 0, 130, ', 'rgba(0, 191, 255, ', 'rgba(255, 20, 147, ', 'rgba(0, 255, 255, '];
+        
+        var nebulaGrad = ctx.createRadialGradient(nebulaX, nebulaY, 0, nebulaX, nebulaY, nebulaSize);
+        nebulaGrad.addColorStop(0, nebulaColors[n % nebulaColors.length] + '0.15)');
+        nebulaGrad.addColorStop(0.5, nebulaColors[n % nebulaColors.length] + '0.05)');
+        nebulaGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = nebulaGrad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     
-    // Floating particles
-    drawBackgroundParticles();
+    // Twinkling stars - many small ones
+    for (var i = 0; i < 150; i++) {
+        var starX = (canvas.width * ((i * 0.0137) % 1));
+        var starY = (canvas.height * ((i * 0.0193) % 1));
+        var twinkle = Math.sin(pulsePhase * 4 + i * 1.7);
+        var starSize = 0.5 + (i % 3) * 0.5 + twinkle * 0.5;
+        var starAlpha = 0.3 + twinkle * 0.4;
+        
+        if (starAlpha > 0 && starSize > 0) {
+            ctx.fillStyle = 'rgba(255, 255, 255, ' + starAlpha + ')';
+            ctx.beginPath();
+            ctx.arc(starX, starY, starSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    
+    // Larger glowing stars
+    var starColors = ['#ffffff', '#00ffff', '#ff6b9d', '#ffd93d', '#00ff88', '#ff00aa', '#7c4dff'];
+    for (var i = 0; i < 30; i++) {
+        var starX = (canvas.width * ((i * 0.0371) % 1));
+        var starY = (canvas.height * ((i * 0.0529) % 1));
+        var twinkle = Math.sin(pulsePhase * 3 + i * 2.3);
+        var starSize = 2 + (i % 4) + twinkle * 1.5;
+        var starAlpha = 0.5 + twinkle * 0.3;
+        var colorIndex = i % starColors.length;
+        
+        if (starAlpha > 0.2) {
+            ctx.shadowColor = starColors[colorIndex];
+            ctx.shadowBlur = 15 + twinkle * 10;
+            ctx.fillStyle = starColors[colorIndex];
+            ctx.globalAlpha = starAlpha;
+            ctx.beginPath();
+            ctx.arc(starX, starY, starSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Star cross effect for brightest stars
+            if (twinkle > 0.5 && starSize > 3) {
+                ctx.strokeStyle = starColors[colorIndex];
+                ctx.lineWidth = 1;
+                ctx.globalAlpha = starAlpha * 0.5;
+                var crossSize = starSize * 3;
+                ctx.beginPath();
+                ctx.moveTo(starX - crossSize, starY);
+                ctx.lineTo(starX + crossSize, starY);
+                ctx.moveTo(starX, starY - crossSize);
+                ctx.lineTo(starX, starY + crossSize);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+    ctx.shadowBlur = 0;
+    
+    // Spiral galaxy in background
+    ctx.save();
+    ctx.translate(canvas.width * 0.75, canvas.height * 0.25);
+    ctx.rotate(pulsePhase * 0.1);
+    for (var arm = 0; arm < 3; arm++) {
+        var armAngle = (Math.PI * 2 / 3) * arm;
+        for (var p = 0; p < 50; p++) {
+            var spiralAngle = armAngle + p * 0.15;
+            var spiralDist = 10 + p * 2.5;
+            var px = Math.cos(spiralAngle) * spiralDist;
+            var py = Math.sin(spiralAngle) * spiralDist * 0.4;
+            var pSize = Math.max(0.5, 2 - p * 0.03);
+            var pAlpha = Math.max(0, 0.4 - p * 0.006);
+            
+            ctx.fillStyle = 'rgba(200, 180, 255, ' + pAlpha + ')';
+            ctx.beginPath();
+            ctx.arc(px, py, pSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    ctx.restore();
+    
+    // Floating cosmic dust particles
+    for (var i = 0; i < 60; i++) {
+        var dustX = (canvas.width * ((i * 0.0234 + pulsePhase * 0.01) % 1));
+        var dustY = (canvas.height * ((i * 0.0345 + pulsePhase * 0.005) % 1));
+        var dustSize = 1 + Math.sin(pulsePhase * 2 + i) * 0.5;
+        var dustAlpha = 0.2 + Math.sin(pulsePhase * 3 + i * 1.5) * 0.15;
+        var dustColors = ['#ff6b9d', '#00ffff', '#ffd93d', '#00ff88'];
+        
+        ctx.fillStyle = dustColors[i % dustColors.length];
+        ctx.globalAlpha = dustAlpha;
+        ctx.beginPath();
+        ctx.arc(dustX, dustY, dustSize, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    
+    // Geometric constellation lines
+    ctx.strokeStyle = 'rgba(100, 200, 255, 0.1)';
+    ctx.lineWidth = 1;
+    for (var c = 0; c < 8; c++) {
+        var cx1 = canvas.width * ((c * 0.137) % 1);
+        var cy1 = canvas.height * ((c * 0.193) % 1);
+        var cx2 = canvas.width * (((c + 3) * 0.137) % 1);
+        var cy2 = canvas.height * (((c + 2) * 0.193) % 1);
+        
+        ctx.beginPath();
+        ctx.moveTo(cx1, cy1);
+        ctx.lineTo(cx2, cy2);
+        ctx.stroke();
+    }
     
     // ENHANCED: Multiple animated laser beams with different colors and patterns
     var laserColors = [
@@ -1496,22 +1729,25 @@ function drawGameOverScreen() {
     // Broken/shattered effect lines radiating from center
     ctx.strokeStyle = 'rgba(255, 71, 87, 0.2)';
     ctx.lineWidth = 1;
+    var lineLength = Math.min(200, canvas.width * 0.25);
     for (var i = 0; i < 12; i++) {
         var angle = (Math.PI * 2 / 12) * i + pulsePhase * 0.1;
-        var length = 200 + Math.sin(pulsePhase * 2 + i) * 50;
+        var length = lineLength + Math.sin(pulsePhase * 2 + i) * (lineLength * 0.25);
         ctx.beginPath();
         ctx.moveTo(canvas.width/2, canvas.height/2 - 50);
         ctx.lineTo(canvas.width/2 + Math.cos(angle) * length, canvas.height/2 - 50 + Math.sin(angle) * length);
         ctx.stroke();
     }
     
-    // Floating skull/danger symbols
-    for (var i = 0; i < 6; i++) {
-        var symbolX = canvas.width * 0.15 + (canvas.width * 0.7) * (i / 5);
-        var symbolY = canvas.height * 0.15 + Math.sin(pulsePhase * 2 + i * 1.5) * 30;
+    // Floating skull/danger symbols - fewer on mobile
+    var symbolCount = isMobile ? 4 : 6;
+    for (var i = 0; i < symbolCount; i++) {
+        var symbolX = canvas.width * 0.15 + (canvas.width * 0.7) * (i / (symbolCount - 1));
+        var symbolY = canvas.height * 0.12 + Math.sin(pulsePhase * 2 + i * 1.5) * 20;
         var symbolAlpha = 0.3 + Math.sin(pulsePhase * 3 + i) * 0.2;
         
-        ctx.font = 'bold 30px Orbitron, sans-serif';
+        var symbolSize = isMobile ? Math.max(18, 30 * mobileScaleFactor) : 30;
+        ctx.font = 'bold ' + symbolSize + 'px Orbitron, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(255, 71, 87, ' + symbolAlpha + ')';
         ctx.shadowColor = '#ff0000';
@@ -1520,52 +1756,81 @@ function drawGameOverScreen() {
     }
     ctx.shadowBlur = 0;
     
+    // Calculate layout based on screen size
+    var isLandscape = canvas.width > canvas.height;
+    var isSmallScreen = canvas.height < 500;
+    
     // Draw the loser image with enhanced effects
     if (loserImageLoaded) {
-        var maxSize = Math.min(canvas.width, canvas.height) * 0.35;
+        var maxSize;
+        var imageYOffset;
+        
+        if (isSmallScreen || isLandscape) {
+            maxSize = Math.min(canvas.width * 0.25, canvas.height * 0.35);
+            imageYOffset = canvas.height * 0.05;
+        } else {
+            maxSize = Math.min(canvas.width * 0.4, canvas.height * 0.3);
+            imageYOffset = canvas.height * 0.08;
+        }
+        
         var imgRatio = loserImage.width / loserImage.height;
         var drawWidth = imgRatio > 1 ? maxSize : maxSize * imgRatio;
         var drawHeight = imgRatio > 1 ? maxSize / imgRatio : maxSize;
         var drawX = (canvas.width - drawWidth) / 2;
-        var drawY = (canvas.height - drawHeight) / 2 - 80;
+        var drawY = imageYOffset;
         
         // Glowing border effect
         ctx.shadowColor = '#ff4757';
         ctx.shadowBlur = 40 + Math.sin(pulsePhase * 4) * 15;
         ctx.strokeStyle = '#ff4757';
-        ctx.lineWidth = 4;
+        ctx.lineWidth = isMobile ? 2 : 4;
         ctx.strokeRect(drawX - 5, drawY - 5, drawWidth + 10, drawHeight + 10);
         
         ctx.drawImage(loserImage, drawX, drawY, drawWidth, drawHeight);
         ctx.shadowBlur = 0;
+        
+        // Position text below image
+        var textY = drawY + drawHeight + (isSmallScreen ? 30 : 50);
+        
+        // "GAME OVER" text with glitch effect
+        var fontSize = isSmallScreen ? Math.max(24, canvas.width * 0.06) : Math.max(32, canvas.width * 0.05);
+        ctx.font = 'bold ' + fontSize + 'px Orbitron, sans-serif';
+        ctx.textAlign = 'center';
+        var glitchOffset = Math.sin(pulsePhase * 20) > 0.9 ? (Math.random() - 0.5) * 10 : 0;
+        
+        // Red shadow
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+        ctx.fillText('GAME OVER', canvas.width/2 + 3 + glitchOffset, textY);
+        
+        // Cyan shadow
+        ctx.fillStyle = 'rgba(0, 255, 255, 0.5)';
+        ctx.fillText('GAME OVER', canvas.width/2 - 3 - glitchOffset, textY);
+        
+        // Main text
+        ctx.shadowColor = '#ff4757';
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = '#ff4757';
+        ctx.fillText('GAME OVER', canvas.width/2, textY);
+        ctx.shadowBlur = 0;
+        
+        // Flashing warning triangles
+        var warningAlpha = 0.5 + Math.sin(pulsePhase * 6) * 0.3;
+        ctx.fillStyle = 'rgba(255, 200, 0, ' + warningAlpha + ')';
+        var warningSize = isSmallScreen ? Math.max(20, fontSize * 0.8) : 40;
+        ctx.font = 'bold ' + warningSize + 'px sans-serif';
+        ctx.fillText('⚠', canvas.width * 0.1, textY);
+        ctx.fillText('⚠', canvas.width * 0.9, textY);
+    } else {
+        // Fallback if image not loaded
+        var fontSize = isSmallScreen ? Math.max(24, canvas.width * 0.06) : 48;
+        ctx.font = 'bold ' + fontSize + 'px Orbitron, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ff4757';
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = '#ff4757';
+        ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2);
+        ctx.shadowBlur = 0;
     }
-    
-    // "GAME OVER" text with glitch effect
-    ctx.font = 'bold 48px Orbitron, sans-serif';
-    ctx.textAlign = 'center';
-    var glitchOffset = Math.sin(pulsePhase * 20) > 0.9 ? (Math.random() - 0.5) * 10 : 0;
-    
-    // Red shadow
-    ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
-    ctx.fillText('GAME OVER', canvas.width/2 + 3 + glitchOffset, canvas.height/2 + 60);
-    
-    // Cyan shadow
-    ctx.fillStyle = 'rgba(0, 255, 255, 0.5)';
-    ctx.fillText('GAME OVER', canvas.width/2 - 3 - glitchOffset, canvas.height/2 + 60);
-    
-    // Main text
-    ctx.shadowColor = '#ff4757';
-    ctx.shadowBlur = 20;
-    ctx.fillStyle = '#ff4757';
-    ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2 + 60);
-    ctx.shadowBlur = 0;
-    
-    // Flashing warning triangles
-    var warningAlpha = 0.5 + Math.sin(pulsePhase * 6) * 0.3;
-    ctx.fillStyle = 'rgba(255, 200, 0, ' + warningAlpha + ')';
-    ctx.font = 'bold 40px sans-serif';
-    ctx.fillText('⚠', canvas.width * 0.15, canvas.height/2 + 60);
-    ctx.fillText('⚠', canvas.width * 0.85, canvas.height/2 + 60);
     
     drawLoserRetryButton();
     
@@ -1581,12 +1846,28 @@ function drawGameOverScreen() {
 }
 
 function drawLoserRetryButton() {
+    var isSmallScreen = canvas.height < 500;
+    var bottomBarHeight = isSmallScreen ? 100 : 150;
+    
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, canvas.height - 150, canvas.width, 150);
-    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 24px Orbitron, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('Score: ' + score + '  |  Best Combo: ' + maxCombo + '  |  Progress: ' + Math.floor((gameTime / gameDuration) * 100) + '%', canvas.width/2, canvas.height - 100);
-    ctx.fillStyle = '#ff6b9d'; ctx.font = 'bold 32px Orbitron, sans-serif';
-    ctx.fillText(isMobile ? 'Tap anywhere to retry' : 'Click or press SPACE to retry', canvas.width/2, canvas.height - 50);
+    ctx.fillRect(0, canvas.height - bottomBarHeight, canvas.width, bottomBarHeight);
+    
+    // Stats text
+    var statsFontSize = isSmallScreen ? Math.max(14, canvas.width * 0.035) : Math.max(18, canvas.width * 0.025);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold ' + statsFontSize + 'px Orbitron, sans-serif';
+    ctx.textAlign = 'center';
+    
+    var statsY = canvas.height - bottomBarHeight + (isSmallScreen ? 35 : 50);
+    var statsText = 'Score: ' + score + '  |  Combo: ' + maxCombo + '  |  ' + Math.floor((gameTime / gameDuration) * 100) + '%';
+    ctx.fillText(statsText, canvas.width/2, statsY);
+    
+    // Retry text
+    var retryFontSize = isSmallScreen ? Math.max(18, canvas.width * 0.045) : Math.max(24, canvas.width * 0.03);
+    ctx.fillStyle = '#ff6b9d';
+    ctx.font = 'bold ' + retryFontSize + 'px Orbitron, sans-serif';
+    var retryY = canvas.height - (isSmallScreen ? 25 : 40);
+    ctx.fillText(isMobile ? 'Tap anywhere to retry' : 'Click or press SPACE to retry', canvas.width/2, retryY);
 }
 
 function drawBackground() {
