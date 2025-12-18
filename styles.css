@@ -679,6 +679,8 @@ body {
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
+    /* Ensure canvas fills the container properly */
+    object-fit: contain;
 }
 
 .mobile-device body {
@@ -687,22 +689,35 @@ body {
     user-select: none;
     touch-action: none;
     overscroll-behavior: none;
+    /* Prevent any scrolling or bouncing */
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100%;
 }
 
 .mobile-device #game-container {
     touch-action: none;
     overscroll-behavior: none;
+    /* Ensure proper sizing on mobile */
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh; /* Dynamic viewport height for mobile browsers */
+    max-width: 100%;
+    max-height: 100%;
 }
 
 .mobile-device .controls-info {
-    font-size: 1rem;
-    margin: 6px 0;
+    font-size: 0.9rem;
+    margin: 5px 0;
+    line-height: 1.3;
 }
 
 .mobile-device .mobile-tip {
-    margin-top: 15px;
+    margin-top: 12px;
     color: #ffd93d;
     font-weight: 600;
+    font-size: 0.95rem;
     animation: mobileTipPulse 1.5s ease-in-out infinite;
 }
 
@@ -717,15 +732,126 @@ body {
     }
 }
 
-/* Larger touch targets for mobile */
+/* Larger touch targets for mobile but not too large */
 .mobile-device .game-btn {
-    padding: 18px 45px;
-    font-size: 1.2rem;
-    min-height: 55px;
+    padding: 14px 35px;
+    font-size: 1.1rem;
+    min-height: 48px;
+}
+
+/* Mobile title scaling */
+.mobile-device .game-title {
+    font-size: 2.5rem;
+    letter-spacing: 0.1em;
+}
+
+.mobile-device .game-title.subtitle {
+    font-size: 2rem;
+}
+
+.mobile-device .title-container {
+    margin-bottom: 20px;
+}
+
+.mobile-device .start-info {
+    margin-bottom: 20px;
 }
 
 /* Adjust UI for mobile screens - landscape */
 @media (max-height: 500px) and (orientation: landscape) {
+    .game-title {
+        font-size: 1.8rem;
+        letter-spacing: 0.06em;
+    }
+    
+    .game-title.subtitle {
+        font-size: 1.4rem;
+    }
+    
+    .title-container {
+        margin-bottom: 10px;
+    }
+    
+    .start-info {
+        margin-bottom: 10px;
+    }
+    
+    .controls-info {
+        font-size: 0.8rem;
+        margin: 3px 0;
+    }
+    
+    .game-btn {
+        padding: 10px 28px;
+        font-size: 0.9rem;
+    }
+    
+    .final-stats {
+        padding: 10px 18px;
+        margin-bottom: 15px;
+    }
+    
+    .stat-row {
+        min-width: 180px;
+        margin: 6px 0;
+    }
+    
+    .stat-label {
+        font-size: 0.9rem;
+    }
+    
+    .stat-value {
+        font-size: 1.2rem;
+    }
+    
+    .gameover-title,
+    .victory-title {
+        font-size: 1.8rem;
+        margin-bottom: 15px;
+    }
+    
+    .victory-stars {
+        font-size: 1.8rem;
+        margin-bottom: 10px;
+    }
+    
+    .key {
+        padding: 2px 8px;
+        font-size: 0.75rem;
+    }
+}
+
+/* Very small landscape screens */
+@media (max-height: 400px) and (orientation: landscape) {
+    .game-title {
+        font-size: 1.5rem;
+    }
+    
+    .game-title.subtitle {
+        font-size: 1.2rem;
+    }
+    
+    .title-container {
+        margin-bottom: 8px;
+    }
+    
+    .start-info {
+        margin-bottom: 8px;
+    }
+    
+    .controls-info {
+        font-size: 0.7rem;
+        margin: 2px 0;
+    }
+    
+    .game-btn {
+        padding: 8px 22px;
+        font-size: 0.85rem;
+    }
+}
+
+/* Adjust UI for mobile screens - portrait small */
+@media (max-width: 480px) {
     .game-title {
         font-size: 2rem;
         letter-spacing: 0.08em;
@@ -736,11 +862,12 @@ body {
     }
     
     .title-container {
-        margin-bottom: 15px;
+        margin-bottom: 18px;
     }
     
     .start-info {
-        margin-bottom: 15px;
+        margin-bottom: 18px;
+        padding: 0 12px;
     }
     
     .controls-info {
@@ -748,163 +875,185 @@ body {
         margin: 4px 0;
     }
     
-    .game-btn {
-        padding: 12px 35px;
-        font-size: 1rem;
-    }
-    
-    .final-stats {
-        padding: 15px 25px;
-        margin-bottom: 20px;
-    }
-    
-    .stat-row {
-        min-width: 200px;
-        margin: 8px 0;
-    }
-    
-    .gameover-title,
-    .victory-title {
-        font-size: 2rem;
-        margin-bottom: 20px;
-    }
-    
-    .victory-stars {
-        font-size: 2rem;
-        margin-bottom: 15px;
-    }
-}
-
-/* Adjust UI for mobile screens - portrait small */
-@media (max-width: 480px) {
-    .game-title {
-        font-size: 2.2rem;
-        letter-spacing: 0.1em;
-    }
-    
-    .game-title.subtitle {
-        font-size: 1.8rem;
-    }
-    
-    .title-container {
-        margin-bottom: 25px;
-    }
-    
-    .start-info {
-        margin-bottom: 25px;
-        padding: 0 15px;
-    }
-    
-    .controls-info {
-        font-size: 1rem;
-    }
-    
     .ui-top {
-        top: 10px;
-        left: 10px;
-        right: 10px;
+        top: 8px;
+        left: 8px;
+        right: 8px;
         padding-top: env(safe-area-inset-top);
     }
     
     .progress-bar {
-        width: 120px;
-        height: 8px;
+        width: 100px;
+        height: 7px;
     }
     
     .time-display {
-        font-size: 0.7rem;
+        font-size: 0.65rem;
     }
     
     .score-value {
-        font-size: 1.3rem;
+        font-size: 1.2rem;
     }
     
     .score-label {
-        font-size: 0.7rem;
+        font-size: 0.65rem;
     }
     
     .combo-display {
-        right: 15px;
+        right: 12px;
     }
     
     .combo-value {
-        font-size: 1.8rem;
+        font-size: 1.5rem;
     }
     
     .combo-label {
-        font-size: 0.8rem;
+        font-size: 0.7rem;
     }
     
     .final-stats {
-        padding: 15px 20px;
-        margin: 0 15px 25px 15px;
-        width: calc(100% - 30px);
-        max-width: 320px;
+        padding: 12px 16px;
+        margin: 0 12px 20px 12px;
+        width: calc(100% - 24px);
+        max-width: 300px;
     }
     
     .stat-row {
         min-width: auto;
         width: 100%;
+        margin: 10px 0;
     }
     
     .stat-label {
-        font-size: 0.95rem;
+        font-size: 0.85rem;
     }
     
     .stat-value {
-        font-size: 1.3rem;
+        font-size: 1.2rem;
     }
     
     .gameover-title,
     .victory-title {
-        font-size: 2.2rem;
+        font-size: 2rem;
     }
     
     .victory-stars {
-        font-size: 2.2rem;
+        font-size: 2rem;
     }
     
     .game-btn {
-        padding: 16px 40px;
-        font-size: 1.1rem;
+        padding: 14px 32px;
+        font-size: 1rem;
+    }
+    
+    .key {
+        padding: 3px 10px;
+        font-size: 0.8rem;
     }
 }
 
 /* Very small screens */
 @media (max-width: 360px) {
     .game-title {
-        font-size: 1.8rem;
+        font-size: 1.6rem;
+        letter-spacing: 0.05em;
     }
     
     .game-title.subtitle {
-        font-size: 1.5rem;
+        font-size: 1.3rem;
+    }
+    
+    .title-container {
+        margin-bottom: 12px;
+    }
+    
+    .start-info {
+        margin-bottom: 12px;
     }
     
     .controls-info {
-        font-size: 0.9rem;
+        font-size: 0.8rem;
+        margin: 3px 0;
     }
     
     .key {
-        padding: 3px 8px;
-        font-size: 0.8rem;
+        padding: 2px 6px;
+        font-size: 0.7rem;
     }
     
     .progress-bar {
-        width: 100px;
+        width: 85px;
+        height: 6px;
     }
     
-    .game-btn {
-        padding: 14px 30px;
+    .time-display {
+        font-size: 0.6rem;
+    }
+    
+    .score-value {
         font-size: 1rem;
     }
     
+    .score-label {
+        font-size: 0.6rem;
+    }
+    
+    .game-btn {
+        padding: 12px 24px;
+        font-size: 0.9rem;
+    }
+    
     .final-stats {
-        padding: 12px 15px;
+        padding: 10px 12px;
+    }
+    
+    .stat-label {
+        font-size: 0.8rem;
+    }
+    
+    .stat-value {
+        font-size: 1.1rem;
     }
     
     .gameover-title,
     .victory-title {
-        font-size: 1.8rem;
+        font-size: 1.6rem;
+    }
+    
+    .victory-stars {
+        font-size: 1.6rem;
+    }
+    
+    .combo-value {
+        font-size: 1.3rem;
+    }
+    
+    .combo-label {
+        font-size: 0.65rem;
+    }
+}
+
+/* Extra small screens (very small phones) */
+@media (max-width: 320px) {
+    .game-title {
+        font-size: 1.4rem;
+    }
+    
+    .game-title.subtitle {
+        font-size: 1.1rem;
+    }
+    
+    .controls-info {
+        font-size: 0.75rem;
+    }
+    
+    .game-btn {
+        padding: 10px 20px;
+        font-size: 0.85rem;
+    }
+    
+    .progress-bar {
+        width: 70px;
     }
 }
 

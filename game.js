@@ -37,7 +37,14 @@ let screenShake = { x: 0, y: 0, intensity: 0 };
 let difficultyMult = 1;
 
 const platform = { leftEdge: 0, rightEdge: 0, width: 0 };
-const JUMP_UNLOCK_TIME = 60000;
+const JUMP_UNLOCK_TIME = 60000; // Stage 2 starts at 1 minute
+
+// Stage system
+let currentStage = 1;
+let stageTransitionActive = false;
+let stageTransitionTimer = 0;
+const STAGE_TRANSITION_DURATION = 3000; // 3 second transition effect
+let stage2DifficultyBoost = 2.5; // Multiplier for stage 2 difficulty
 
 // Base player dimensions - will be scaled for mobile
 var basePlayerSize = 35;
@@ -354,21 +361,48 @@ function resizeCanvas() {
     canvas.height = viewportHeight;
     
     // Calculate mobile scale factor based on screen size
-    var referenceWidth = 800; // Reference desktop width
-    mobileScaleFactor = Math.max(0.7, Math.min(1.2, viewportWidth / referenceWidth));
+    // Use a smaller reference for mobile to make everything more compact
+    var referenceWidth = isMobile ? 600 : 800;
+    var referenceHeight = isMobile ? 400 : 600;
     
-    // Scale player size for mobile
+    // Calculate scale based on both width and height for better mobile fit
+    var widthScale = viewportWidth / referenceWidth;
+    var heightScale = viewportHeight / referenceHeight;
+    mobileScaleFactor = Math.max(0.5, Math.min(1.0, Math.min(widthScale, heightScale)));
+    
+    // Scale player size for mobile - make it smaller on phones
     if (isMobile) {
-        player.width = Math.max(25, basePlayerSize * mobileScaleFactor);
-        player.height = Math.max(25, basePlayerSize * mobileScaleFactor);
+        // Smaller player on mobile for better visibility and gameplay
+        var mobilePlayerScale = Math.max(0.6, Math.min(0.85, viewportHeight / 700));
+        player.width = Math.max(20, basePlayerSize * mobilePlayerScale);
+        player.height = Math.max(20, basePlayerSize * mobilePlayerScale);
     } else {
         player.width = basePlayerSize;
         player.height = basePlayerSize;
     }
     
     // Adjust ground position based on screen height
-    // Use a percentage-based approach for better mobile scaling
-    var groundOffset = Math.min(100, viewportHeight * 0.12);
+    // On mobile, position the player higher up on screen (more visible area above)
+    // This creates a better "camera" position where player is in lower-middle area
+    var groundOffsetPercent;
+    if (isMobile) {
+        // Mobile: player at about 75-80% down the screen (more room above)
+        if (viewportHeight < 500) {
+            // Very small screens (landscape or small phones)
+            groundOffsetPercent = 0.22;
+        } else if (viewportHeight < 700) {
+            // Medium mobile screens
+            groundOffsetPercent = 0.20;
+        } else {
+            // Larger mobile screens
+            groundOffsetPercent = 0.18;
+        }
+    } else {
+        // Desktop: player at about 85-88% down the screen
+        groundOffsetPercent = 0.12;
+    }
+    
+    var groundOffset = viewportHeight * groundOffsetPercent;
     player.groundY = viewportHeight - groundOffset;
     
     // Only reset player position if not in the middle of a game
@@ -388,9 +422,17 @@ function resizeCanvas() {
     
     // Adjust platform width based on screen size
     // Wider platform on smaller screens for better playability
-    var platformWidthPercent = isMobile ? 0.85 : 0.7;
-    if (viewportWidth < 400) {
-        platformWidthPercent = 0.9;
+    var platformWidthPercent;
+    if (isMobile) {
+        if (viewportWidth < 400) {
+            platformWidthPercent = 0.92;
+        } else if (viewportWidth < 600) {
+            platformWidthPercent = 0.88;
+        } else {
+            platformWidthPercent = 0.85;
+        }
+    } else {
+        platformWidthPercent = 0.7;
     }
     platform.width = viewportWidth * platformWidthPercent;
     platform.leftEdge = (viewportWidth - platform.width) / 2;
@@ -624,6 +666,11 @@ function startGame() {
     deathAnimationState = null;
     lastBeamSpawn = 0; lastSweeperSpawn = 0; lastRainSpawn = 0; lastLaserSpawn = 0; lastFlashLaserSpawn = 0;
     
+    // Reset stage system
+    currentStage = 1;
+    stageTransitionActive = false;
+    stageTransitionTimer = 0;
+    
     // Reset all key states
     keys.left = false;
     keys.right = false;
@@ -807,8 +854,31 @@ function update(dt) {
     }
     if (gameState === 'playing') {
         gameTime += dt;
-        difficultyMult = 1 + (gameTime / 1000) * 0.08;
-        player.speed = Math.max(5, 7 - (gameTime / 60000) * 1.5);
+        
+        // Check for stage transition
+        if (currentStage === 1 && gameTime >= JUMP_UNLOCK_TIME) {
+            triggerStageTransition();
+        }
+        
+        // Update stage transition effect
+        if (stageTransitionActive) {
+            stageTransitionTimer += dt;
+            if (stageTransitionTimer >= STAGE_TRANSITION_DURATION) {
+                stageTransitionActive = false;
+            }
+        }
+        
+        // Calculate difficulty based on stage
+        if (currentStage === 1) {
+            difficultyMult = 1 + (gameTime / 1000) * 0.06; // Slower ramp in stage 1
+            player.speed = Math.max(6, 7 - (gameTime / 60000) * 0.5);
+        } else {
+            // Stage 2: Much higher difficulty
+            var stage2Time = gameTime - JUMP_UNLOCK_TIME;
+            difficultyMult = stage2DifficultyBoost + (stage2Time / 1000) * 0.15; // Faster ramp in stage 2
+            player.speed = Math.max(4, 7 - (stage2Time / 30000) * 2); // Player slows down more in stage 2
+        }
+        
         if (gameTime >= gameDuration) { victory(); return; }
         updatePlayer(dt);
         updateObstacles(dt);
@@ -817,7 +887,7 @@ function update(dt) {
         checkCollisions();
         checkPlatformEdges();
         updateUI();
-        score += 1;
+        score += currentStage === 2 ? 2 : 1; // Double score in stage 2
     }
     updateParticles(dt);
 }
@@ -934,117 +1004,271 @@ function addWarning(x, width, duration) {
     warningIndicators.push({ x: x, width: width, duration: duration, timer: 0, alpha: 0.5 });
 }
 
-function spawnProgressiveObstacles() {
-    var t = gameTime, dm = difficultyMult;
-    var beamInterval = Math.max(400, 1500 - t * 0.008);
-    var rainInterval = Math.max(60, 400 - t * 0.003);
-    var laserInterval = Math.max(400, 1800 - t * 0.01);
-    var flashLaserInterval = Math.max(600, 2500 - t * 0.008);
+function triggerStageTransition() {
+    currentStage = 2;
+    stageTransitionActive = true;
+    stageTransitionTimer = 0;
     
-    if (t - lastBeamSpawn > beamInterval) {
-        lastBeamSpawn = t;
-        var numBeams = Math.min(5, 1 + Math.floor(t / 20000));
-        for (var i = 0; i < numBeams; i++) {
-            var x = platform.leftEdge + Math.random() * platform.width;
-            spawnBeam(x, 60 + Math.random() * 50 + (t / 1500), Math.max(250, 700 - t * 0.004), 350 + Math.random() * 250 + (t / 400));
-        }
+    // Epic transition effects
+    triggerScreenShake(30);
+    flashIntensity = 1.0;
+    beatPulse = 1.0;
+    
+    // Create explosion of particles
+    for (var i = 0; i < 100; i++) {
+        createParticle(canvas.width / 2 + (Math.random() - 0.5) * canvas.width,
+                       canvas.height / 2 + (Math.random() - 0.5) * canvas.height, 'celebration');
     }
     
-    if (t >= JUMP_UNLOCK_TIME) {
-        var sweeperInterval = Math.max(600, 2500 - (t - JUMP_UNLOCK_TIME) * 0.02);
+    // Clear existing obstacles for a brief moment of relief
+    obstacles = [];
+    warningIndicators = [];
+}
+
+function spawnProgressiveObstacles() {
+    var t = gameTime, dm = difficultyMult;
+    
+    // Don't spawn during stage transition grace period
+    if (stageTransitionActive && stageTransitionTimer < 1500) {
+        return;
+    }
+    
+    // STAGE 1: Moderate difficulty, no sweepers
+    if (currentStage === 1) {
+        var beamInterval = Math.max(600, 1800 - t * 0.006);
+        var rainInterval = Math.max(100, 500 - t * 0.003);
+        var laserInterval = Math.max(600, 2200 - t * 0.008);
+        
+        // Beams - fewer and slower in stage 1
+        if (t - lastBeamSpawn > beamInterval) {
+            lastBeamSpawn = t;
+            var numBeams = Math.min(3, 1 + Math.floor(t / 25000));
+            for (var i = 0; i < numBeams; i++) {
+                var x = platform.leftEdge + Math.random() * platform.width;
+                spawnBeam(x, 50 + Math.random() * 40, Math.max(400, 800 - t * 0.003), 300 + Math.random() * 200);
+            }
+        }
+        
+        // Rain - moderate in stage 1
+        if (t - lastRainSpawn > rainInterval) {
+            lastRainSpawn = t;
+            var rainCount = Math.min(6, 1 + Math.floor(t / 12000));
+            for (var i = 0; i < rainCount; i++) {
+                var x = platform.leftEdge + Math.random() * platform.width;
+                var speed = 7 + (t / 6000) * dm + Math.random() * 4;
+                if (Math.random() < 0.15 + (t / 300000)) spawnBigRain(x, speed * 0.7);
+                else spawnRain(x, speed);
+            }
+        }
+        
+        // Lasers - start later and less frequent in stage 1
+        if (t > 15000 && t - lastLaserSpawn > laserInterval) {
+            lastLaserSpawn = t;
+            var x = platform.leftEdge + Math.random() * platform.width;
+            spawnLaser(x, 35 + (t / 4000), Math.max(500, 1000 - t * 0.004), 250);
+        }
+        
+        // Flash lasers - rare in stage 1
+        if (t > 40000 && t - lastFlashLaserSpawn > 4000) {
+            lastFlashLaserSpawn = t;
+            spawnFlashLaser(platform.leftEdge + Math.random() * platform.width, 40, Math.max(700, 1400 - t * 0.005), 180);
+        }
+        
+        // Diagonal rain - very rare in stage 1
+        if (t > 30000 && Math.random() < 0.01 * dm) spawnDiagonalRain();
+    }
+    
+    // STAGE 2: Intense difficulty with jumping required
+    else {
+        var stage2Time = t - JUMP_UNLOCK_TIME;
+        var beamInterval = Math.max(250, 800 - stage2Time * 0.012);
+        var rainInterval = Math.max(40, 200 - stage2Time * 0.004);
+        var laserInterval = Math.max(300, 1000 - stage2Time * 0.015);
+        var flashLaserInterval = Math.max(400, 1500 - stage2Time * 0.012);
+        var sweeperInterval = Math.max(400, 1800 - stage2Time * 0.025);
+        
+        // Beams - many more and faster
+        if (t - lastBeamSpawn > beamInterval) {
+            lastBeamSpawn = t;
+            var numBeams = Math.min(7, 2 + Math.floor(stage2Time / 10000));
+            for (var i = 0; i < numBeams; i++) {
+                var x = platform.leftEdge + Math.random() * platform.width;
+                spawnBeam(x, 70 + Math.random() * 60 + (stage2Time / 1000), Math.max(180, 500 - stage2Time * 0.006), 400 + Math.random() * 300 + (stage2Time / 300));
+            }
+        }
+        
+        // Sweepers - the signature stage 2 obstacle requiring jumps
         if (t - lastSweeperSpawn > sweeperInterval) {
             lastSweeperSpawn = t;
             var fromLeft = Math.random() > 0.5;
-            var speed = 14 + ((t - JUMP_UNLOCK_TIME) / 2000) * dm;
-            spawnSweeper(fromLeft, canvas.height - 60 - Math.random() * 80, speed, 55 + Math.random() * 35);
-            if (t > 75000 && Math.random() > 0.4) setTimeout(function() { spawnSweeper(!fromLeft, canvas.height - 80 - Math.random() * 60, speed * 1.1, 55); }, 200);
-            if (t > 100000 && Math.random() > 0.5) setTimeout(function() { spawnSweeper(fromLeft, canvas.height - 100, speed * 0.9, 60); }, 400);
+            var speed = 16 + (stage2Time / 1500) * dm;
+            spawnSweeper(fromLeft, player.groundY - 30 - Math.random() * 60, speed, 60 + Math.random() * 40);
+            
+            // Double sweepers after 15 seconds in stage 2
+            if (stage2Time > 15000 && Math.random() > 0.3) {
+                setTimeout(function() {
+                    spawnSweeper(!fromLeft, player.groundY - 50 - Math.random() * 50, speed * 1.15, 55);
+                }, 150);
+            }
+            
+            // Triple sweepers after 40 seconds in stage 2
+            if (stage2Time > 40000 && Math.random() > 0.4) {
+                setTimeout(function() {
+                    spawnSweeper(fromLeft, player.groundY - 70, speed * 0.95, 65);
+                }, 350);
+            }
         }
-    }
-    
-    if (t - lastRainSpawn > rainInterval) {
-        lastRainSpawn = t;
-        var rainCount = Math.min(10, 2 + Math.floor(t / 8000));
-        for (var i = 0; i < rainCount; i++) {
+        
+        // Rain - intense barrage
+        if (t - lastRainSpawn > rainInterval) {
+            lastRainSpawn = t;
+            var rainCount = Math.min(15, 4 + Math.floor(stage2Time / 5000));
+            for (var i = 0; i < rainCount; i++) {
+                var x = platform.leftEdge + Math.random() * platform.width;
+                var speed = 11 + (stage2Time / 2500) * dm + Math.random() * 6;
+                if (Math.random() < 0.35 + (stage2Time / 100000)) spawnBigRain(x, speed * 0.85);
+                else spawnRain(x, speed);
+            }
+        }
+        
+        // Lasers - frequent and wide
+        if (t - lastLaserSpawn > laserInterval) {
+            lastLaserSpawn = t;
             var x = platform.leftEdge + Math.random() * platform.width;
-            var speed = 9 + (t / 4000) * dm + Math.random() * 5;
-            if (Math.random() < 0.3 + (t / 200000)) spawnBigRain(x, speed * 0.8);
-            else spawnRain(x, speed);
+            spawnLaser(x, 50 + (stage2Time / 2000), Math.max(250, 600 - stage2Time * 0.007), 320);
+            
+            // Double lasers
+            if (stage2Time > 20000 && Math.random() > 0.3) {
+                var x2 = x > canvas.width / 2 ? x - platform.width * 0.35 : x + platform.width * 0.35;
+                spawnLaser(Math.max(platform.leftEdge, Math.min(platform.rightEdge, x2)), 50 + (stage2Time / 2000), Math.max(250, 600 - stage2Time * 0.007) + 80, 320);
+            }
+            
+            // Triple lasers in late stage 2
+            if (stage2Time > 50000 && Math.random() > 0.5) {
+                spawnLaser(canvas.width * 0.5, 60 + (stage2Time / 1500), Math.max(200, 500 - stage2Time * 0.008), 350);
+            }
         }
-    }
-    
-    if (t > 10000 && t - lastLaserSpawn > laserInterval) {
-        lastLaserSpawn = t;
-        var x = platform.leftEdge + Math.random() * platform.width;
-        spawnLaser(x, 40 + (t / 3000), Math.max(350, 900 - t * 0.005), 280);
-        if (t > 35000 && Math.random() > 0.35) {
-            var x2 = x > canvas.width / 2 ? x - platform.width * 0.3 : x + platform.width * 0.3;
-            spawnLaser(Math.max(platform.leftEdge, Math.min(platform.rightEdge, x2)), 40 + (t / 3000), Math.max(350, 900 - t * 0.005) + 100, 280);
+        
+        // Flash lasers - frequent and dangerous
+        if (t - lastFlashLaserSpawn > flashLaserInterval) {
+            lastFlashLaserSpawn = t;
+            spawnFlashLaser(platform.leftEdge + Math.random() * platform.width, 55 + (stage2Time / 3000), Math.max(350, 800 - stage2Time * 0.008), 220);
+            
+            // Double flash lasers
+            if (stage2Time > 30000 && Math.random() > 0.4) {
+                setTimeout(function() {
+                    spawnFlashLaser(platform.leftEdge + Math.random() * platform.width, 55, 400, 200);
+                }, 200);
+            }
         }
-        if (t > 70000 && Math.random() > 0.4) spawnLaser(canvas.width * 0.5, (40 + (t / 3000)) * 1.3, Math.max(350, 900 - t * 0.005), 320);
-    }
-    
-    if (t > 20000 && t - lastFlashLaserSpawn > flashLaserInterval) {
-        lastFlashLaserSpawn = t;
-        spawnFlashLaser(platform.leftEdge + Math.random() * platform.width, 50 + (t / 5000), Math.max(500, 1200 - t * 0.006), 200);
-    }
-    
-    if (t > 20000 && Math.random() < 0.025 * dm) spawnDiagonalRain();
-    
-    if (t > 90000) {
-        if (Math.random() < 0.04) spawnBeam(platform.leftEdge + Math.random() * platform.width, 70, 200, 450);
-        if (Math.random() < 0.03) spawnFlashLaser(platform.leftEdge + Math.random() * platform.width, 60, 400, 250);
-    }
-    if (t > 110000) {
-        if (Math.random() < 0.06) spawnBigRain(platform.leftEdge + Math.random() * platform.width, 16 + Math.random() * 8);
-        if (Math.random() < 0.03) spawnLaser(platform.leftEdge + Math.random() * platform.width, 55, 280, 320);
+        
+        // Diagonal rain - frequent in stage 2
+        if (Math.random() < 0.04 * dm) spawnDiagonalRain();
+        
+        // Chaos mode in final stretch (last 20 seconds)
+        if (t > 110000) {
+            if (Math.random() < 0.08) spawnBeam(platform.leftEdge + Math.random() * platform.width, 80, 150, 500);
+            if (Math.random() < 0.06) spawnFlashLaser(platform.leftEdge + Math.random() * platform.width, 65, 300, 280);
+            if (Math.random() < 0.08) spawnBigRain(platform.leftEdge + Math.random() * platform.width, 18 + Math.random() * 10);
+            if (Math.random() < 0.05) spawnLaser(platform.leftEdge + Math.random() * platform.width, 60, 220, 350);
+        }
     }
 }
 
 function spawnBeam(x, width, warningTime, activeTime) {
-    obstacles.push({ type: 'beam', x: x, y: 0, width: 10, maxWidth: width || 80, height: canvas.height,
+    // Scale beam width for mobile
+    var beamWidth = width || 80;
+    if (isMobile) {
+        beamWidth = Math.max(50, beamWidth * mobileScaleFactor * 0.85);
+    }
+    obstacles.push({ type: 'beam', x: x, y: 0, width: 10, maxWidth: beamWidth, height: canvas.height,
         timer: 0, warningTime: warningTime || 600, activeTime: activeTime || 400,
         alpha: 0.3, active: false, color: '#ffd93d', glowColor: '#ff9a3c' });
-    addWarning(x, width || 80, warningTime || 600);
+    addWarning(x, beamWidth, warningTime || 600);
 }
 
 function spawnLaser(x, width, warningTime, activeTime) {
-    obstacles.push({ type: 'laser', x: x, y: 0, width: 5, maxWidth: width || 40, height: canvas.height,
+    // Scale laser width for mobile
+    var laserWidth = width || 40;
+    if (isMobile) {
+        laserWidth = Math.max(30, laserWidth * mobileScaleFactor * 0.85);
+    }
+    obstacles.push({ type: 'laser', x: x, y: 0, width: 5, maxWidth: laserWidth, height: canvas.height,
         timer: 0, warningTime: warningTime || 800, activeTime: activeTime || 250,
         alpha: 0.2, active: false, color: '#ff4757', glowColor: '#ff6b81' });
-    addWarning(x, width || 40, warningTime || 800);
+    addWarning(x, laserWidth, warningTime || 800);
 }
 
 function spawnFlashLaser(x, width, warningTime, activeTime) {
-    obstacles.push({ type: 'flashLaser', x: x, y: 0, width: 5, maxWidth: width || 55, height: canvas.height,
+    // Scale flash laser width for mobile
+    var flashWidth = width || 55;
+    if (isMobile) {
+        flashWidth = Math.max(40, flashWidth * mobileScaleFactor * 0.85);
+    }
+    obstacles.push({ type: 'flashLaser', x: x, y: 0, width: 5, maxWidth: flashWidth, height: canvas.height,
         timer: 0, warningTime: warningTime || 1000, activeTime: activeTime || 200,
         alpha: 0.2, active: false, color: '#00ffff', glowColor: '#00ff88' });
-    addWarning(x, width || 55, warningTime || 1000);
+    addWarning(x, flashWidth, warningTime || 1000);
 }
 
 function spawnSweeper(fromLeft, y, speed, height) {
-    obstacles.push({ type: 'sweeper', x: fromLeft ? -100 : canvas.width + 100, y: y || canvas.height - 80,
-        width: 150, height: height || 60, direction: fromLeft ? 1 : -1,
+    // Use player.groundY for consistent sweeper positioning
+    // Scale sweeper size for mobile
+    var defaultY = player.groundY - (isMobile ? 20 : 30);
+    var sweeperWidth = isMobile ? Math.max(100, 120 * mobileScaleFactor) : 150;
+    var sweeperHeight = isMobile ? Math.max(40, (height || 60) * mobileScaleFactor) : (height || 60);
+    
+    obstacles.push({ type: 'sweeper', x: fromLeft ? -100 : canvas.width + 100, y: y || defaultY,
+        width: sweeperWidth, height: sweeperHeight, direction: fromLeft ? 1 : -1,
         speed: speed || 15, timer: 0, warningTime: 300,
         alpha: 0.3, active: false, color: '#ff6b9d', glowColor: '#c44569' });
 }
 
 function spawnRain(x, speed) {
-    obstacles.push({ type: 'rain', x: x, y: -50, width: 28, height: 50,
+    // Scale rain size for mobile - smaller on phones
+    var rainWidth, rainHeight;
+    if (isMobile) {
+        rainWidth = Math.max(14, 22 * mobileScaleFactor);
+        rainHeight = Math.max(24, 40 * mobileScaleFactor);
+    } else {
+        rainWidth = 28;
+        rainHeight = 50;
+    }
+    
+    obstacles.push({ type: 'rain', x: x, y: -50, width: rainWidth, height: rainHeight,
         speed: speed || 10, timer: 0, alpha: 1, active: true,
         color: '#ffd93d', glowColor: '#ff9a3c', trailColor: '#ffaa00' });
 }
 
 function spawnBigRain(x, speed) {
-    obstacles.push({ type: 'bigRain', x: x, y: -80, width: 45, height: 75,
+    // Scale big rain size for mobile - smaller on phones
+    var rainWidth, rainHeight;
+    if (isMobile) {
+        rainWidth = Math.max(22, 35 * mobileScaleFactor);
+        rainHeight = Math.max(36, 60 * mobileScaleFactor);
+    } else {
+        rainWidth = 45;
+        rainHeight = 75;
+    }
+    
+    obstacles.push({ type: 'bigRain', x: x, y: -80, width: rainWidth, height: rainHeight,
         speed: speed || 8, timer: 0, alpha: 1, active: true,
         color: '#ff6b9d', glowColor: '#ff00aa', trailColor: '#ff44cc' });
 }
 
 function spawnDiagonalRain() {
     var fromLeft = Math.random() > 0.5;
+    // Scale diagonal rain size for mobile - smaller on phones
+    var diagWidth, diagHeight;
+    if (isMobile) {
+        diagWidth = Math.max(18, 28 * mobileScaleFactor);
+        diagHeight = Math.max(30, 48 * mobileScaleFactor);
+    } else {
+        diagWidth = 35;
+        diagHeight = 60;
+    }
     obstacles.push({ type: 'diagonal', x: fromLeft ? platform.leftEdge - 20 : platform.rightEdge + 20, y: -30,
-        width: 35, height: 60, vx: fromLeft ? 7 + Math.random() * 5 : -7 - Math.random() * 5,
+        width: diagWidth, height: diagHeight, vx: fromLeft ? 7 + Math.random() * 5 : -7 - Math.random() * 5,
         vy: 9 + Math.random() * 5, timer: 0, alpha: 1, active: false,
         color: '#ff9a3c', glowColor: '#ffd93d', trailColor: '#ffcc00' });
 }
@@ -1124,8 +1348,17 @@ function triggerScreenShake(intensity) { screenShake.intensity = intensity; }
 function updateUI() {
     var progress = (gameTime/gameDuration)*100;
     progressFill.style.width = progress+'%';
+    
+    // Change progress bar color based on stage
+    if (currentStage === 2) {
+        progressFill.style.background = 'linear-gradient(90deg, #ff4757, #ff6b9d, #ff00aa)';
+    } else {
+        progressFill.style.background = 'linear-gradient(90deg, #00ffff, #ff6b9d, #ffd93d)';
+    }
+    
     var sec = Math.floor(gameTime/1000), total = Math.floor(gameDuration/1000);
-    timeDisplay.textContent = Math.floor(sec/60)+':'+(sec%60<10?'0':'')+(sec%60)+' / '+Math.floor(total/60)+':'+(total%60<10?'0':'')+(total%60);
+    var stageText = currentStage === 2 ? ' [STAGE 2]' : ' [STAGE 1]';
+    timeDisplay.textContent = Math.floor(sec/60)+':'+(sec%60<10?'0':'')+(sec%60)+' / '+Math.floor(total/60)+':'+(total%60<10?'0':'')+(total%60) + stageText;
     scoreValue.textContent = score;
     if (combo >= 50) { comboDisplay.classList.remove('hidden'); comboValue.textContent = combo; }
     else { comboDisplay.classList.add('hidden'); }
@@ -1151,6 +1384,11 @@ function render() {
     if (gameState === 'playing') drawPlayer();
     if (gameState === 'dying') drawDeathAnimation();
     drawParticles();
+    
+    // Draw stage transition overlay
+    if (stageTransitionActive) {
+        drawStageTransition();
+    }
     if (flashIntensity > 0.01) {
         ctx.fillStyle = 'rgba(255,255,255,'+flashIntensity+')';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1893,27 +2131,32 @@ function drawBackground() {
     if (beatPulse > 0.1) { ctx.fillStyle = 'rgba(255,107,157,'+(beatPulse*0.15)+')'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
     for (var i = 0; i < buildings.length; i++) drawBuilding(buildings[i]);
     
-    var abyssGrad = ctx.createLinearGradient(0, canvas.height-120, 0, canvas.height);
+    // Calculate abyss area based on player ground position for consistent camera
+    var abyssTop = player.groundY - 40;
+    var abyssHeight = canvas.height - abyssTop;
+    var abyssGrad = ctx.createLinearGradient(0, abyssTop, 0, canvas.height);
     abyssGrad.addColorStop(0, 'rgba(0,0,0,0)');
     abyssGrad.addColorStop(0.3, 'rgba(10,0,20,0.5)');
     abyssGrad.addColorStop(0.7, 'rgba(15,0,25,0.8)');
     abyssGrad.addColorStop(1, 'rgba(5,0,10,1)');
     ctx.fillStyle = abyssGrad;
-    ctx.fillRect(0, canvas.height-120, platform.leftEdge, 120);
-    ctx.fillRect(platform.rightEdge, canvas.height-120, canvas.width - platform.rightEdge, 120);
+    ctx.fillRect(0, abyssTop, platform.leftEdge, abyssHeight);
+    ctx.fillRect(platform.rightEdge, abyssTop, canvas.width - platform.rightEdge, abyssHeight);
     
     ctx.shadowColor = '#4a0080'; ctx.shadowBlur = 30;
     ctx.strokeStyle = 'rgba(100, 0, 150, 0.5)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(platform.leftEdge, canvas.height - 120); ctx.lineTo(platform.leftEdge, canvas.height); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(platform.rightEdge, canvas.height - 120); ctx.lineTo(platform.rightEdge, canvas.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(platform.leftEdge, abyssTop); ctx.lineTo(platform.leftEdge, canvas.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(platform.rightEdge, abyssTop); ctx.lineTo(platform.rightEdge, canvas.height); ctx.stroke();
     ctx.shadowBlur = 0;
     
     draw3DPlatform();
 }
 
 function draw3DPlatform() {
-    var platformTop = canvas.height - 80;
-    var platformDepth = 25;
+    // Calculate platform top based on player ground position for consistency
+    var groundOffset = canvas.height - player.groundY;
+    var platformTop = player.groundY -10; // Platform surface slightly above groundY
+    var platformDepth = Math.max(15, Math.min(30, groundOffset * 0.3));
     
     var sideGradLeft = ctx.createLinearGradient(platform.leftEdge, platformTop, platform.leftEdge, canvas.height);
     sideGradLeft.addColorStop(0, '#2a1a4e'); sideGradLeft.addColorStop(0.5, '#1a0a2e'); sideGradLeft.addColorStop(1, '#0a0015');
@@ -1945,11 +2188,12 @@ function draw3DPlatform() {
     ctx.lineTo(platform.leftEdge - platformDepth, canvas.height);
     ctx.closePath(); ctx.fill();
     
+    var platformHeight = canvas.height - platformTop;
     var groundGrad = ctx.createLinearGradient(0, platformTop - 10, 0, platformTop + 30);
     groundGrad.addColorStop(0, '#5d4f8d'); groundGrad.addColorStop(0.3, '#4d3f7d');
     groundGrad.addColorStop(0.7, '#3d2f5d'); groundGrad.addColorStop(1, '#2a1a4e');
     ctx.fillStyle = groundGrad;
-    ctx.fillRect(platform.leftEdge, platformTop, platform.width, 80);
+    ctx.fillRect(platform.leftEdge, platformTop, platform.width, platformHeight);
     
     ctx.strokeStyle = 'rgba(255, 107, 157, 0.15)'; ctx.lineWidth = 1;
     var gridSpacing = 40;
@@ -1977,21 +2221,23 @@ function draw3DPlatform() {
     ctx.shadowBlur = 0;
     
     var dangerAlpha = 0.3 + Math.sin(pulsePhase * 4) * 0.2;
-    var dangerGrad = ctx.createLinearGradient(platform.leftEdge - 30, 0, platform.leftEdge, 0);
+    var dangerZoneWidth = Math.max(20, Math.min(40, platform.width * 0.05));
+    var dangerGrad = ctx.createLinearGradient(platform.leftEdge - dangerZoneWidth, 0, platform.leftEdge, 0);
     dangerGrad.addColorStop(0, 'rgba(255, 0, 0, ' + (dangerAlpha * 0.5) + ')');
     dangerGrad.addColorStop(1, 'rgba(255, 0, 0, ' + dangerAlpha + ')');
     ctx.fillStyle = dangerGrad;
-    ctx.fillRect(platform.leftEdge - 30, platformTop, 30, 80);
+    ctx.fillRect(platform.leftEdge - dangerZoneWidth, platformTop, dangerZoneWidth, platformHeight);
     
-    var dangerGrad2 = ctx.createLinearGradient(platform.rightEdge, 0, platform.rightEdge + 30, 0);
+    var dangerGrad2 = ctx.createLinearGradient(platform.rightEdge, 0, platform.rightEdge + dangerZoneWidth, 0);
     dangerGrad2.addColorStop(0, 'rgba(255, 0, 0, ' + dangerAlpha + ')');
     dangerGrad2.addColorStop(1, 'rgba(255, 0, 0, ' + (dangerAlpha * 0.5) + ')');
     ctx.fillStyle = dangerGrad2;
-    ctx.fillRect(platform.rightEdge, platformTop, 30, 80);
+    ctx.fillRect(platform.rightEdge, platformTop, dangerZoneWidth, platformHeight);
 }
 
 function drawBuilding(b) {
-    var baseY = canvas.height - 80;
+    // Use player groundY for consistent building positioning
+    var baseY = player.groundY + 10;
     var grad = ctx.createLinearGradient(b.x, baseY-b.height, b.x, baseY);
     grad.addColorStop(0, 'hsla('+b.hue+',60%,25%,0.9)'); grad.addColorStop(1, 'hsla('+b.hue+',70%,12%,0.95)');
     ctx.fillStyle = grad; ctx.fillRect(b.x, baseY-b.height, b.width, b.height);
@@ -2194,6 +2440,108 @@ function drawVignette() {
     var grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.height*0.3, canvas.width/2, canvas.height/2, canvas.height);
     grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(0,0,0,0.5)');
     ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+function drawStageTransition() {
+    var progress = stageTransitionTimer / STAGE_TRANSITION_DURATION;
+    
+    // Dramatic flash effect at the start
+    if (progress < 0.3) {
+        var flashAlpha = (0.3 - progress) / 0.3;
+        ctx.fillStyle = 'rgba(255, 0, 170, ' + (flashAlpha * 0.6) + ')';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + (flashAlpha * 0.8) + ')';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    
+    // Stage 2 announcement text
+    if (progress > 0.1 && progress < 0.9) {
+        var textAlpha = progress < 0.5 ? (progress - 0.1) / 0.4 : (0.9 - progress) / 0.4;
+        var scale = 1 + Math.sin(progress * Math.PI * 4) * 0.1;
+        var shake = Math.sin(progress * Math.PI * 20) * (1 - progress) * 10;
+        
+        ctx.save();
+        ctx.translate(canvas.width / 2 + shake, canvas.height / 2);
+        ctx.scale(scale, scale);
+        
+        // Glowing background for text
+        ctx.shadowColor = '#ff00aa';
+        ctx.shadowBlur = 50 + Math.sin(progress * Math.PI * 8) * 20;
+        
+        // Main text
+        var fontSize = isMobile ? Math.max(36, canvas.width * 0.08) : 72;
+        ctx.font = 'bold ' + fontSize + 'px Orbitron, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Text shadow layers
+        ctx.fillStyle = 'rgba(255, 0, 0, ' + (textAlpha * 0.5) + ')';
+        ctx.fillText('STAGE 2', 4, 4);
+        
+        ctx.fillStyle = 'rgba(0, 255, 255, ' + (textAlpha * 0.5) + ')';
+        ctx.fillText('STAGE 2', -4, -4);
+        
+        // Main text
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + textAlpha + ')';
+        ctx.fillText('STAGE 2', 0, 0);
+        
+        // Subtitle
+        var subFontSize = isMobile ? Math.max(18, canvas.width * 0.04) : 28;
+        ctx.font = 'bold ' + subFontSize + 'px Orbitron, sans-serif';
+        ctx.fillStyle = 'rgba(255, 107, 157, ' + textAlpha + ')';
+        ctx.shadowColor = '#ff6b9d';
+        ctx.shadowBlur = 20;
+        ctx.fillText('JUMP TO SURVIVE!', 0, fontSize * 0.7);
+        
+        ctx.restore();
+        ctx.shadowBlur = 0;
+    }
+    
+    // Pulsing border effect
+    var borderAlpha = 0.3 + Math.sin(progress * Math.PI * 6) * 0.2;
+    var borderWidth = 10 + Math.sin(progress * Math.PI * 4) * 5;
+    
+    ctx.strokeStyle = 'rgba(255, 0, 170, ' + borderAlpha + ')';
+    ctx.lineWidth = borderWidth;
+    ctx.shadowColor = '#ff00aa';
+    ctx.shadowBlur = 30;
+    ctx.strokeRect(borderWidth/2, borderWidth/2, canvas.width - borderWidth, canvas.height - borderWidth);
+    ctx.shadowBlur = 0;
+    
+    // Corner flashes
+    var cornerSize = 100 + Math.sin(progress * Math.PI * 8) * 30;
+    var cornerAlpha = 0.4 * (1 - progress);
+    
+    ctx.fillStyle = 'rgba(255, 0, 170, ' + cornerAlpha + ')';
+    // Top-left
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(cornerSize, 0);
+    ctx.lineTo(0, cornerSize);
+    ctx.closePath();
+    ctx.fill();
+    // Top-right
+    ctx.beginPath();
+    ctx.moveTo(canvas.width, 0);
+    ctx.lineTo(canvas.width - cornerSize, 0);
+    ctx.lineTo(canvas.width, cornerSize);
+    ctx.closePath();
+    ctx.fill();
+    // Bottom-left
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height);
+    ctx.lineTo(cornerSize, canvas.height);
+    ctx.lineTo(0, canvas.height - cornerSize);
+    ctx.closePath();
+    ctx.fill();
+    // Bottom-right
+    ctx.beginPath();
+    ctx.moveTo(canvas.width, canvas.height);
+    ctx.lineTo(canvas.width - cornerSize, canvas.height);
+    ctx.lineTo(canvas.width, canvas.height - cornerSize);
+    ctx.closePath();
+    ctx.fill();
 }
 
 init();
